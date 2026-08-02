@@ -1,0 +1,24 @@
+.player-room {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg) var(--space-md);
+  text-align: center;
+}
+
+.player-room-status {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.player-room-warning {
+  color: var(--color-orange);
+  font-size: 0.9rem;
+}
+
+.player-room-roster {
+  width: 100%;
+  max-width: 360px;
+}

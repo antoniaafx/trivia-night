@@ -1,0 +1,41 @@
+.join-page {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-lg) var(--space-md);
+}
+
+.join-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  width: 100%;
+  max-width: 360px;
+}
+
+.join-form label {
+  font-family: var(--font-heading);
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+}
+
+.join-form input {
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+  font-size: 1rem;
+  font-family: inherit;
+}
+
+.join-form input:focus-visible {
+  outline: 2px solid var(--color-electric-blue);
+  outline-offset: 2px;
+}
+
+.join-error {
+  color: var(--color-pink);
+  font-size: 0.9rem;
+}
