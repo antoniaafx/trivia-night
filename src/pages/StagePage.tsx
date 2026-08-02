@@ -1,19 +1,24 @@
 import { useParams } from "react-router-dom";
 import { useGameRoom } from "../hooks/useGameRoom";
-import { getQuestionById, type Question } from "../data/questions";
+import { getQuestionById, QUESTIONS } from "../data/questions";
 import { computeAggregateReveal, computeWinners } from "../utils/scoring";
 import LoadingScreen from "../components/LoadingScreen";
 import CompetitorLeaderboard from "../components/CompetitorLeaderboard";
-import type { AnswerLike } from "../utils/scoring";
+import type { GradedLike } from "../utils/scoring";
 import type { Competitor } from "../types/game";
 import { playerToCompetitor, teamToCompetitor } from "../types/game";
 import "./StagePage.css";
 
+function questionNumber(questionId: string | null): number {
+  return QUESTIONS.findIndex((question) => question.id === questionId) + 1;
+}
+
 /**
  * The shared display. Read-only by design: no host controls render
  * here under any circumstance, and it never shows anything a host
- * hasn't already revealed to the room (no correct answer during the
- * question phase, no per-player or per-team-member answers ever).
+ * hasn't already revealed to the room (no correct answer or submitted
+ * text during the question phase, no per-player or per-team-member
+ * answers ever - not even after Reveal, only the aggregate).
  */
 function StagePage() {
   const { roomCode = "" } = useParams<{ roomCode: string }>();
@@ -69,16 +74,18 @@ function StagePage() {
 
       {room.phase === "question" && question && (
         <>
-          <p className="stage-eyebrow">Question 1</p>
+          <p className="stage-eyebrow">Question {questionNumber(question.id)}</p>
           <h1>{question.prompt}</h1>
-          <div className="stage-options">
-            {question.options.map((option) => (
-              <div key={option.id} className="stage-option">
-                <span className="stage-option-letter">{option.id}</span>
-                {option.text}
-              </div>
-            ))}
-          </div>
+          {question.answerMethod === "multiple_choice" && (
+            <div className="stage-options">
+              {question.options.map((option) => (
+                <div key={option.id} className="stage-option">
+                  <span className="stage-option-letter">{option.id}</span>
+                  {option.text}
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
 
@@ -87,9 +94,11 @@ function StagePage() {
           <p className="stage-eyebrow">Reveal</p>
           <h1>
             The answer was{" "}
-            {question.options.find((option) => option.id === question.correctOptionId)?.text}
+            {question.answerMethod === "multiple_choice"
+              ? question.options.find((option) => option.id === question.correctOptionId)?.text
+              : question.correctAnswer}
           </h1>
-          <StageAggregate answers={isTeamMode ? teamAnswers : answers} question={question} />
+          <StageAggregate answers={isTeamMode ? teamAnswers : answers} />
         </>
       )}
 
@@ -107,13 +116,21 @@ function StagePage() {
   );
 }
 
-function StageAggregate({ answers, question }: { answers: AnswerLike[]; question: Question }) {
-  const aggregate = computeAggregateReveal(answers, question);
+function StageAggregate({ answers }: { answers: GradedLike[] }) {
+  const aggregate = computeAggregateReveal(answers);
+
+  if (aggregate.answeredCount === 0) {
+    return <p className="stage-status">Nobody answered this one</p>;
+  }
+
+  if (aggregate.pendingCount > 0) {
+    return <p className="stage-status">Some answers are still being checked.</p>;
+  }
+
   return (
     <p className="stage-status">
-      {aggregate.answeredCount === 0
-        ? "Nobody answered this one"
-        : `${aggregate.correctCount} of ${aggregate.answeredCount} got it right (${aggregate.percentageCorrect}%)`}
+      {aggregate.correctCount} of {aggregate.correctCount + aggregate.incorrectCount} got it right (
+      {aggregate.percentageCorrect}%)
     </p>
   );
 }

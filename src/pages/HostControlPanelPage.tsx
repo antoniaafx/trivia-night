@@ -4,7 +4,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { useClientId } from "../hooks/useClientId";
 import { useRoomChannel } from "../hooks/useRoomChannel";
 import { useGameRoom } from "../hooks/useGameRoom";
-import { getQuestionById, type Question } from "../data/questions";
+import { getNextQuestionId, getQuestionById, type Question, type TypedAnswerQuestion } from "../data/questions";
 import { computeAggregateReveal, computeWinners } from "../utils/scoring";
 import PlayerList from "../components/PlayerList";
 import LoadingScreen from "../components/LoadingScreen";
@@ -15,6 +15,7 @@ import type {
   CompetitionStyle,
   Competitor,
   PlayerRecord,
+  TeamAnswerRecord,
   TeamRecord,
 } from "../types/game";
 import { playerToCompetitor, teamToCompetitor } from "../types/game";
@@ -31,6 +32,12 @@ function describeStatus(status: string): string {
     default:
       return "Connecting...";
   }
+}
+
+interface PendingReviewItem {
+  id: string;
+  competitorName: string;
+  submittedText: string;
 }
 
 function HostControlPanelPage() {
@@ -59,6 +66,9 @@ function HostControlPanelPage() {
     setCompetitionStyle,
     startGame,
     revealAnswer,
+    advanceQuestion,
+    reviewAnswer,
+    reviewTeamAnswer,
     showLeaderboard,
     showWinner,
     playAgain,
@@ -95,8 +105,39 @@ function HostControlPanelPage() {
     ? teams.map(teamToCompetitor)
     : scorablePlayers.map(playerToCompetitor);
   const unitLabel = isTeamMode ? "team" : "player";
-  const answeredCount = isTeamMode ? teamAnswers.length : answers.length;
   const totalCompetitors = isTeamMode ? teams.length : scorablePlayers.length;
+
+  const gradedAnswers = isTeamMode ? teamAnswers : answers;
+  const pendingItems: PendingReviewItem[] = gradedAnswers
+    .filter((answer) => answer.gradingStatus === "pending_review")
+    .map((answer) => {
+      if (isTeamMode) {
+        const teamAnswer = answer as TeamAnswerRecord;
+        const team = teams.find((t) => t.id === teamAnswer.teamId);
+        return {
+          id: teamAnswer.teamId,
+          competitorName: team?.name ?? "A team",
+          submittedText: teamAnswer.textAnswer ?? "",
+        };
+      }
+      const playerAnswer = answer as AnswerRecord;
+      const player = scorablePlayers.find((p) => p.clientId === playerAnswer.clientId);
+      return {
+        id: playerAnswer.clientId,
+        competitorName: player?.displayName ?? "A player",
+        submittedText: playerAnswer.textAnswer ?? "",
+      };
+    });
+
+  const nextQuestionId = getNextQuestionId(room.currentQuestionId);
+
+  function handleReview(id: string, decision: "correct" | "incorrect") {
+    if (isTeamMode) {
+      void reviewTeamAnswer(id, decision);
+    } else {
+      void reviewAnswer(id, decision);
+    }
+  }
 
   return (
     <div className="host-lobby">
@@ -126,7 +167,7 @@ function HostControlPanelPage() {
       {room.phase === "question" && question && (
         <QuestionPhase
           question={question}
-          answeredCount={answeredCount}
+          answeredCount={gradedAnswers.length}
           totalCompetitors={totalCompetitors}
           unitLabel={unitLabel}
           onReveal={() => void revealAnswer()}
@@ -136,13 +177,23 @@ function HostControlPanelPage() {
       {room.phase === "reveal" && question && (
         <RevealPhase
           question={question}
-          answers={isTeamMode ? teamAnswers : answers}
-          onShowLeaderboard={() => void showLeaderboard()}
+          answers={gradedAnswers}
+          pendingItems={pendingItems}
+          onReview={handleReview}
+          onContinue={() => void (nextQuestionId ? advanceQuestion() : showLeaderboard())}
+          continueLabel={nextQuestionId ? "Continue to Next Question" : "Show Leaderboard"}
         />
       )}
 
       {room.phase === "leaderboard" && (
-        <LeaderboardPhase competitors={competitors} unitLabel={unitLabel} onShowWinner={() => void showWinner()} />
+        <LeaderboardPhase
+          competitors={competitors}
+          unitLabel={unitLabel}
+          pendingItems={pendingItems}
+          question={question}
+          onReview={handleReview}
+          onShowWinner={() => void showWinner()}
+        />
       )}
 
       {room.phase === "ended" && (
@@ -303,21 +354,36 @@ function QuestionPhase({
   unitLabel: string;
   onReveal: () => void;
 }) {
+  const verb = question.answerMethod === "typed_answer" ? "submitted" : "answered";
+
   return (
     <div className="host-phase card">
       <p className="host-phase-label">Question</p>
       <h2>{question.prompt}</h2>
-      <ul className="host-options">
-        {question.options.map((option) => (
-          <li key={option.id} className={option.id === question.correctOptionId ? "host-options-correct" : ""}>
-            {option.id}. {option.text}
-            {option.id === question.correctOptionId && " (correct)"}
-          </li>
-        ))}
-      </ul>
+
+      {question.answerMethod === "multiple_choice" ? (
+        <ul className="host-options">
+          {question.options.map((option) => (
+            <li key={option.id} className={option.id === question.correctOptionId ? "host-options-correct" : ""}>
+              {option.id}. {option.text}
+              {option.id === question.correctOptionId && " (correct)"}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="host-typed-answer-key">
+          <p>
+            Correct answer (Host only): <strong>{question.correctAnswer}</strong>
+          </p>
+          {question.acceptedAnswers.length > 0 && (
+            <p className="host-lobby-status">Also accepted: {question.acceptedAnswers.join(", ")}</p>
+          )}
+        </div>
+      )}
+
       <p className="host-answered-count">
         {answeredCount} of {totalCompetitors} {unitLabel}
-        {totalCompetitors === 1 ? "" : "s"} answered
+        {totalCompetitors === 1 ? "" : "s"} {verb}
       </p>
       <button type="button" className="btn btn-primary" onClick={onReveal}>
         Reveal Answer
@@ -326,28 +392,90 @@ function QuestionPhase({
   );
 }
 
+function TypedAnswerReviewQueue({
+  items,
+  question,
+  onReview,
+}: {
+  items: PendingReviewItem[];
+  question: TypedAnswerQuestion;
+  onReview: (id: string, decision: "correct" | "incorrect") => void;
+}) {
+  if (items.length === 0) return null;
+
+  return (
+    <div className="host-review-queue">
+      <h3>
+        Possible typo{items.length === 1 ? "" : "s"} - {items.length} to review
+      </h3>
+      <ul>
+        {items.map((item) => (
+          <li key={item.id} className="host-review-item">
+            <p>
+              <strong>{item.competitorName}</strong> answered:
+            </p>
+            <p className="host-review-submitted">&ldquo;{item.submittedText}&rdquo;</p>
+            <p className="host-lobby-status">Correct answer: &ldquo;{question.correctAnswer}&rdquo;</p>
+            <div className="host-review-actions">
+              <button type="button" className="btn btn-primary" onClick={() => onReview(item.id, "correct")}>
+                Accept
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={() => onReview(item.id, "incorrect")}>
+                Reject
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function RevealPhase({
   question,
   answers,
-  onShowLeaderboard,
+  pendingItems,
+  onReview,
+  onContinue,
+  continueLabel,
 }: {
   question: Question;
-  answers: AnswerRecord[] | { optionId: string }[];
-  onShowLeaderboard: () => void;
+  answers: AnswerRecord[] | TeamAnswerRecord[];
+  pendingItems: PendingReviewItem[];
+  onReview: (id: string, decision: "correct" | "incorrect") => void;
+  onContinue: () => void;
+  continueLabel: string;
 }) {
-  const correctOption = question.options.find((option) => option.id === question.correctOptionId);
-  const aggregate = computeAggregateReveal(answers, question);
+  const aggregate = computeAggregateReveal(answers);
+  const correctAnswerText =
+    question.answerMethod === "multiple_choice"
+      ? question.options.find((option) => option.id === question.correctOptionId)?.text
+      : question.correctAnswer;
 
   return (
     <div className="host-phase card">
       <p className="host-phase-label">Reveal</p>
-      <h2>The answer was {correctOption?.text}</h2>
+      <h2>The answer was {correctAnswerText}</h2>
       <p className="host-aggregate">
-        {aggregate.correctCount} of {aggregate.answeredCount} correct ({aggregate.percentageCorrect}%)
+        {aggregate.correctCount} of {aggregate.correctCount + aggregate.incorrectCount} correct (
+        {aggregate.percentageCorrect}%)
+        {aggregate.pendingCount > 0 &&
+          ` — ${aggregate.pendingCount} still being checked`}
       </p>
-      <button type="button" className="btn btn-primary" onClick={onShowLeaderboard}>
-        Show Leaderboard
-      </button>
+
+      {question.answerMethod === "typed_answer" && pendingItems.length > 0 && (
+        <TypedAnswerReviewQueue items={pendingItems} question={question} onReview={onReview} />
+      )}
+
+      {pendingItems.length > 0 ? (
+        <button type="button" className="btn btn-ghost" onClick={onContinue}>
+          Continue With Provisional Scores
+        </button>
+      ) : (
+        <button type="button" className="btn btn-primary" onClick={onContinue}>
+          {continueLabel}
+        </button>
+      )}
     </div>
   );
 }
@@ -355,19 +483,36 @@ function RevealPhase({
 function LeaderboardPhase({
   competitors,
   unitLabel,
+  pendingItems,
+  question,
+  onReview,
   onShowWinner,
 }: {
   competitors: Competitor[];
   unitLabel: string;
+  pendingItems: PendingReviewItem[];
+  question: Question | null;
+  onReview: (id: string, decision: "correct" | "incorrect") => void;
   onShowWinner: () => void;
 }) {
   return (
     <div className="host-phase card">
       <p className="host-phase-label">Leaderboard</p>
       <CompetitorLeaderboard competitors={competitors} emptyMessage={`No ${unitLabel}s to show yet.`} />
-      <button type="button" className="btn btn-primary" onClick={onShowWinner}>
-        Show Winner
-      </button>
+
+      {pendingItems.length > 0 && question?.answerMethod === "typed_answer" ? (
+        <>
+          <p className="host-lobby-status" role="status">
+            {pendingItems.length} answer{pendingItems.length === 1 ? "" : "s"} still need review before the winner
+            can be shown.
+          </p>
+          <TypedAnswerReviewQueue items={pendingItems} question={question} onReview={onReview} />
+        </>
+      ) : (
+        <button type="button" className="btn btn-primary" onClick={onShowWinner}>
+          Show Winner
+        </button>
+      )}
     </div>
   );
 }

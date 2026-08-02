@@ -74,35 +74,46 @@
   font-size: 1rem;
 }
 
-.host-leaderboard {
+.host-typed-answer-key {
   width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.host-leaderboard li {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: 0.6rem 1rem;
+  text-align: left;
+  padding: 0.75rem 1rem;
   border-radius: var(--radius-sm);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
 }
 
-.host-leaderboard-rank {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  min-width: 1.5rem;
+.host-review-queue {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
 }
 
-.host-leaderboard-name {
-  flex: 1;
+.host-review-queue ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: 0;
+  margin: 0;
+}
+
+.host-review-item {
   text-align: left;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
 }
 
-.host-leaderboard-score {
-  font-family: var(--font-heading);
-  font-weight: 700;
+.host-review-submitted {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.host-review-actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: 0.5rem;
 }

@@ -1,5 +1,6 @@
 import type { Question } from "../data/questions";
-import type { Competitor } from "../types/game";
+import type { Competitor, GradingStatus } from "../types/game";
+import { gradeTypedAnswer } from "./typedAnswer";
 
 /**
  * Pure, dependency-free scoring/ranking rules, shared by Solo and Team
@@ -14,31 +15,79 @@ import type { Competitor } from "../types/game";
  * implementation instead of two parallel ones.
  */
 
-export function isAnswerCorrect(optionId: string | undefined, question: Question): boolean {
-  return optionId !== undefined && optionId === question.correctOptionId;
+/** Whatever a competitor actually submitted, regardless of answer method - exactly one field is ever set. */
+export interface SubmittedAnswer {
+  optionId: string | null;
+  textAnswer: string | null;
 }
 
-export function scoreForAnswer(optionId: string | undefined, question: Question): number {
-  return isAnswerCorrect(optionId, question) ? question.points : 0;
+/**
+ * The single dispatch point between answer methods: Multiple Choice
+ * grades instantly by comparing option ids; Typed Answer runs through
+ * normalization/accepted-answer/fuzzy-typo logic. Everything downstream
+ * (aggregate reveal, per-viewer feedback, scoring) reads the
+ * GradingStatus this returns rather than re-deriving correctness from
+ * raw option ids or text, so there is exactly one place answer-method
+ * logic lives.
+ */
+export function gradeSubmission(question: Question, answer: SubmittedAnswer): GradingStatus {
+  if (question.answerMethod === "multiple_choice") {
+    if (answer.optionId === null) return "incorrect";
+    return answer.optionId === question.correctOptionId ? "correct" : "incorrect";
+  }
+
+  if (answer.textAnswer === null) return "incorrect";
+  return gradeTypedAnswer(answer.textAnswer, question);
 }
 
-/** Anything with an optionId - AnswerRecord and TeamAnswerRecord both qualify without a cast. */
-export interface AnswerLike {
-  optionId: string;
+/** pending_review is provisional 0 until a Host resolves it - never awarded automatically. */
+export function pointsForGrade(status: GradingStatus, question: Question): number {
+  return status === "correct" ? question.points : 0;
+}
+
+/**
+ * A competitor's total score is always this sum, recomputed from
+ * scratch over every answer row they have for the current game
+ * instance (across every question, not just the one just graded) -
+ * never an incrementing running total. That is what makes score
+ * reconciliation idempotent: summing the same rows twice gives the
+ * same total, and a Host flipping one row's points_awarded (Accept ->
+ * Reject or back) is reflected correctly the next time this runs,
+ * never stacked on top of the previous value.
+ */
+export function sumPointsAwarded(answers: { pointsAwarded: number }[]): number {
+  return answers.reduce((total, answer) => total + answer.pointsAwarded, 0);
+}
+
+/** Anything with a gradingStatus - AnswerRecord and TeamAnswerRecord both qualify without a cast. */
+export interface GradedLike {
+  gradingStatus: GradingStatus;
 }
 
 export interface AggregateReveal {
   answeredCount: number;
   correctCount: number;
-  percentageCorrect: number; // 0-100, 0 when nobody answered
+  incorrectCount: number;
+  pendingCount: number;
+  /**
+   * resolvedCorrect / resolvedTotal - pending-review answers are held
+   * out of this percentage entirely (not counted as wrong, not counted
+   * as right) rather than folded into either side, so the number never
+   * misrepresents an outcome that isn't decided yet. pendingCount is
+   * always shown alongside it, never hidden inside the percentage.
+   */
+  percentageCorrect: number;
 }
 
-export function computeAggregateReveal(answers: AnswerLike[], question: Question): AggregateReveal {
+export function computeAggregateReveal(answers: GradedLike[]): AggregateReveal {
   const answeredCount = answers.length;
-  const correctCount = answers.filter((answer) => isAnswerCorrect(answer.optionId, question)).length;
-  const percentageCorrect = answeredCount === 0 ? 0 : Math.round((correctCount / answeredCount) * 100);
+  const correctCount = answers.filter((answer) => answer.gradingStatus === "correct").length;
+  const incorrectCount = answers.filter((answer) => answer.gradingStatus === "incorrect").length;
+  const pendingCount = answers.filter((answer) => answer.gradingStatus === "pending_review").length;
+  const resolvedTotal = correctCount + incorrectCount;
+  const percentageCorrect = resolvedTotal === 0 ? 0 : Math.round((correctCount / resolvedTotal) * 100);
 
-  return { answeredCount, correctCount, percentageCorrect };
+  return { answeredCount, correctCount, incorrectCount, pendingCount, percentageCorrect };
 }
 
 /**
@@ -95,4 +144,14 @@ export function validateTeamName(name: string): TeamNameValidation {
  */
 export function isEventForCurrentInstance(eventInstanceId: string, currentInstanceId: string | null): boolean {
   return currentInstanceId !== null && eventInstanceId === currentInstanceId;
+}
+
+/**
+ * Same reasoning as isEventForCurrentInstance, one level more specific:
+ * an answer event belongs to the question currently on screen unless
+ * the room has already advanced to a different question (or back to
+ * lobby, where currentQuestionId is null).
+ */
+export function isEventForCurrentQuestion(eventQuestionId: string, currentQuestionId: string | null): boolean {
+  return currentQuestionId !== null && eventQuestionId === currentQuestionId;
 }

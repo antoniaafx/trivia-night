@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { getQuestionById } from "../data/questions";
-import { computeWinners, isEventForCurrentInstance } from "../utils/scoring";
+import { FIRST_QUESTION_ID, getNextQuestionId, getQuestionById } from "../data/questions";
+import { computeWinners, isEventForCurrentInstance, isEventForCurrentQuestion } from "../utils/scoring";
+import { playerToCompetitor, teamToCompetitor } from "../types/game";
 import {
   cleanupEmptyTeams,
   createTeam as createTeamRow,
@@ -13,18 +14,22 @@ import {
   fetchTeams,
   resetRoomForNewGame,
   revealAndScore,
+  reviewAnswer as reviewAnswerRow,
+  reviewTeamAnswer as reviewTeamAnswerRow,
   setCompetitionStyle as setCompetitionStyleRow,
   setPlayerTeam,
   submitAnswer as submitAnswerRow,
   submitTeamAnswer as submitTeamAnswerRow,
+  submitTeamTypedAnswer as submitTeamTypedAnswerRow,
+  submitTypedAnswer as submitTypedAnswerRow,
   transitionPhase,
   upsertPlayer,
 } from "../services/gameRoomRepository";
 import { isSupabaseConfigured, supabase } from "../services/supabaseClient";
-import { playerToCompetitor, teamToCompetitor } from "../types/game";
 import type {
   AnswerRecord,
   CompetitionStyle,
+  GradingStatus,
   PlayerRecord,
   RoomRecord,
   TeamAnswerRecord,
@@ -46,20 +51,31 @@ interface UseGameRoomResult {
   roomNotFound: boolean;
   room: RoomRecord | null;
   players: PlayerRecord[];
+  /** Scoped to room.currentQuestionId - a previous question's answers are cleared the moment the room advances. */
   answers: AnswerRecord[];
   teams: TeamRecord[];
+  /** Scoped to room.currentQuestionId - see `answers`. */
   teamAnswers: TeamAnswerRecord[];
   myAnswerOptionId: string | null;
+  myTypedAnswerText: string | null;
+  myGradingStatus: GradingStatus | null;
   myTeamId: string | null;
   myTeamAnswerOptionId: string | null;
+  myTeamTypedAnswerText: string | null;
+  myTeamGradingStatus: GradingStatus | null;
   setCompetitionStyle: (style: CompetitionStyle) => Promise<{ ok: boolean }>;
   createTeam: (name: string) => Promise<TeamRecord>;
   joinTeam: (teamId: string) => Promise<void>;
   leaveTeam: () => Promise<void>;
   startGame: () => Promise<void>;
   submitAnswer: (optionId: string) => Promise<void>;
+  submitTypedAnswer: (text: string) => Promise<void>;
   submitTeamAnswer: (optionId: string) => Promise<void>;
+  submitTeamTypedAnswer: (text: string) => Promise<void>;
   revealAnswer: () => Promise<void>;
+  advanceQuestion: () => Promise<void>;
+  reviewAnswer: (clientId: string, decision: "correct" | "incorrect") => Promise<void>;
+  reviewTeamAnswer: (teamId: string, decision: "correct" | "incorrect") => Promise<void>;
   showLeaderboard: () => Promise<void>;
   showWinner: () => Promise<void>;
   playAgain: () => Promise<void>;
@@ -78,10 +94,11 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
   const [teamAnswers, setTeamAnswers] = useState<TeamAnswerRecord[]>([]);
 
   // Realtime callbacks are set up once per mount, but need to compare
-  // incoming events against the *latest* game instance id, not whatever
-  // was current when the subscription was created - a ref avoids stale
-  // closures without re-subscribing on every room update.
+  // incoming events against the *latest* game instance/question, not
+  // whatever was current when the subscription was created - refs avoid
+  // stale closures without re-subscribing on every room update.
   const gameInstanceIdRef = useRef<string | null>(null);
+  const currentQuestionIdRef = useRef<string | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
 
   useEffect(() => {
@@ -112,6 +129,7 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
       }
 
       gameInstanceIdRef.current = existingRoom.gameInstanceId;
+      currentQuestionIdRef.current = existingRoom.currentQuestionId;
       setRoom(existingRoom);
 
       if (self) {
@@ -120,11 +138,16 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
         await upsertPlayer(roomCode, self.clientId, self.displayName, self.isHost);
       }
 
+      const currentQuestionId = existingRoom.currentQuestionId;
       const [initialPlayers, initialAnswers, initialTeams, initialTeamAnswers] = await Promise.all([
         fetchPlayers(roomCode),
-        fetchAnswers(roomCode, existingRoom.gameInstanceId),
+        currentQuestionId
+          ? fetchAnswers(roomCode, existingRoom.gameInstanceId, currentQuestionId)
+          : Promise.resolve([]),
         fetchTeams(roomCode),
-        fetchTeamAnswers(roomCode, existingRoom.gameInstanceId),
+        currentQuestionId
+          ? fetchTeamAnswers(roomCode, existingRoom.gameInstanceId, currentQuestionId)
+          : Promise.resolve([]),
       ]);
       if (cancelled) return;
 
@@ -154,7 +177,21 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
           createdAt: row.created_at as string,
           updatedAt: row.updated_at as string,
         };
+
         gameInstanceIdRef.current = updated.gameInstanceId;
+
+        // The room has moved on to a different question (or back to
+        // none, in lobby) - last question's answers no longer describe
+        // "the current question", so drop them. Nothing needs to be
+        // re-fetched: a freshly-started question has no answers yet, and
+        // they'll arrive one at a time over this same subscription as
+        // competitors submit.
+        if (updated.currentQuestionId !== currentQuestionIdRef.current) {
+          currentQuestionIdRef.current = updated.currentQuestionId;
+          setAnswers([]);
+          setTeamAnswers([]);
+        }
+
         setRoom(updated);
       },
     );
@@ -200,14 +237,21 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
         }
 
         const row = payload.new as Record<string, unknown>;
-        if (!row || !isEventForCurrentInstance(row.game_instance_id as string, gameInstanceIdRef.current)) return;
+        if (!row) return;
+        if (!isEventForCurrentInstance(row.game_instance_id as string, gameInstanceIdRef.current)) return;
+        if (!isEventForCurrentQuestion(row.question_id as string, currentQuestionIdRef.current)) return;
 
         const updated: AnswerRecord = {
           roomCode: row.room_code as string,
           gameInstanceId: row.game_instance_id as string,
+          questionId: row.question_id as string,
           clientId: row.client_id as string,
-          optionId: row.option_id as string,
+          optionId: row.option_id as string | null,
+          textAnswer: row.text_answer as string | null,
+          gradingStatus: row.grading_status as GradingStatus,
+          pointsAwarded: row.points_awarded as number,
           answeredAt: row.answered_at as string,
+          reviewedAt: row.reviewed_at as string | null,
         };
         setAnswers((prev) => {
           const withoutThisAnswer = prev.filter((answer) => answer.clientId !== updated.clientId);
@@ -253,14 +297,21 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
         }
 
         const row = payload.new as Record<string, unknown>;
-        if (!row || !isEventForCurrentInstance(row.game_instance_id as string, gameInstanceIdRef.current)) return;
+        if (!row) return;
+        if (!isEventForCurrentInstance(row.game_instance_id as string, gameInstanceIdRef.current)) return;
+        if (!isEventForCurrentQuestion(row.question_id as string, currentQuestionIdRef.current)) return;
 
         const updated: TeamAnswerRecord = {
           roomCode: row.room_code as string,
           gameInstanceId: row.game_instance_id as string,
+          questionId: row.question_id as string,
           teamId: row.team_id as string,
-          optionId: row.option_id as string,
+          optionId: row.option_id as string | null,
+          textAnswer: row.text_answer as string | null,
+          gradingStatus: row.grading_status as GradingStatus,
+          pointsAwarded: row.points_awarded as number,
           answeredAt: row.answered_at as string,
+          reviewedAt: row.reviewed_at as string | null,
         };
         setTeamAnswers((prev) => {
           const withoutThisAnswer = prev.filter((answer) => answer.teamId !== updated.teamId);
@@ -324,13 +375,23 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
     if (room.competitionStyle === "team") {
       await cleanupEmptyTeams(roomCode);
     }
-    await transitionPhase(roomCode, room.phase, "question", { current_question_id: "q1" });
+    await transitionPhase(roomCode, room.phase, "question", { current_question_id: FIRST_QUESTION_ID });
   }, [roomCode, room]);
 
   const submitAnswer = useCallback(
     async (optionId: string) => {
-      if (!self || !room || room.phase !== "question") return;
-      await submitAnswerRow(roomCode, room.gameInstanceId, self.clientId, optionId);
+      if (!self || !room || room.phase !== "question" || !room.currentQuestionId) return;
+      await submitAnswerRow(roomCode, room.gameInstanceId, room.currentQuestionId, self.clientId, optionId);
+    },
+    [roomCode, room, self],
+  );
+
+  const submitTypedAnswer = useCallback(
+    async (text: string) => {
+      if (!self || !room || room.phase !== "question" || !room.currentQuestionId) return;
+      const trimmed = text.trim();
+      if (trimmed.length === 0) return;
+      await submitTypedAnswerRow(roomCode, room.gameInstanceId, room.currentQuestionId, self.clientId, trimmed);
     },
     [roomCode, room, self],
   );
@@ -339,18 +400,55 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
 
   const submitTeamAnswer = useCallback(
     async (optionId: string) => {
-      if (!room || room.phase !== "question" || !myTeamId) return;
-      await submitTeamAnswerRow(roomCode, room.gameInstanceId, myTeamId, optionId);
+      if (!room || room.phase !== "question" || !room.currentQuestionId || !myTeamId) return;
+      await submitTeamAnswerRow(roomCode, room.gameInstanceId, room.currentQuestionId, myTeamId, optionId);
+    },
+    [roomCode, room, myTeamId],
+  );
+
+  const submitTeamTypedAnswer = useCallback(
+    async (text: string) => {
+      if (!room || room.phase !== "question" || !room.currentQuestionId || !myTeamId) return;
+      const trimmed = text.trim();
+      if (trimmed.length === 0) return;
+      await submitTeamTypedAnswerRow(roomCode, room.gameInstanceId, room.currentQuestionId, myTeamId, trimmed);
     },
     [roomCode, room, myTeamId],
   );
 
   const revealAnswer = useCallback(async () => {
-    if (!room) return;
+    if (!room || !room.currentQuestionId) return;
     const question = getQuestionById(room.currentQuestionId);
     if (!question) return;
-    await revealAndScore(roomCode, room.gameInstanceId, room.competitionStyle, question);
+    await revealAndScore(roomCode, room.gameInstanceId, room.currentQuestionId, room.competitionStyle, question);
   }, [roomCode, room]);
+
+  const advanceQuestion = useCallback(async () => {
+    if (!room) return;
+    const nextQuestionId = getNextQuestionId(room.currentQuestionId);
+    if (!nextQuestionId) return;
+    await transitionPhase(roomCode, "reveal", "question", { current_question_id: nextQuestionId });
+  }, [roomCode, room]);
+
+  const reviewAnswer = useCallback(
+    async (clientId: string, decision: "correct" | "incorrect") => {
+      if (!room || !room.currentQuestionId) return;
+      const question = getQuestionById(room.currentQuestionId);
+      if (!question) return;
+      await reviewAnswerRow(roomCode, room.gameInstanceId, room.currentQuestionId, clientId, decision, question);
+    },
+    [roomCode, room],
+  );
+
+  const reviewTeamAnswer = useCallback(
+    async (teamId: string, decision: "correct" | "incorrect") => {
+      if (!room || !room.currentQuestionId) return;
+      const question = getQuestionById(room.currentQuestionId);
+      if (!question) return;
+      await reviewTeamAnswerRow(roomCode, room.gameInstanceId, room.currentQuestionId, teamId, decision, question);
+    },
+    [roomCode, room],
+  );
 
   const showLeaderboard = useCallback(async () => {
     if (!room) return;
@@ -378,8 +476,24 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
     ? (answers.find((answer) => answer.clientId === self.clientId)?.optionId ?? null)
     : null;
 
+  const myTypedAnswerText = self
+    ? (answers.find((answer) => answer.clientId === self.clientId)?.textAnswer ?? null)
+    : null;
+
+  const myGradingStatus = self
+    ? (answers.find((answer) => answer.clientId === self.clientId)?.gradingStatus ?? null)
+    : null;
+
   const myTeamAnswerOptionId = myTeamId
     ? (teamAnswers.find((answer) => answer.teamId === myTeamId)?.optionId ?? null)
+    : null;
+
+  const myTeamTypedAnswerText = myTeamId
+    ? (teamAnswers.find((answer) => answer.teamId === myTeamId)?.textAnswer ?? null)
+    : null;
+
+  const myTeamGradingStatus = myTeamId
+    ? (teamAnswers.find((answer) => answer.teamId === myTeamId)?.gradingStatus ?? null)
     : null;
 
   return {
@@ -392,16 +506,25 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
     teams,
     teamAnswers,
     myAnswerOptionId,
+    myTypedAnswerText,
+    myGradingStatus,
     myTeamId,
     myTeamAnswerOptionId,
+    myTeamTypedAnswerText,
+    myTeamGradingStatus,
     setCompetitionStyle,
     createTeam,
     joinTeam,
     leaveTeam,
     startGame,
     submitAnswer,
+    submitTypedAnswer,
     submitTeamAnswer,
+    submitTeamTypedAnswer,
     revealAnswer,
+    advanceQuestion,
+    reviewAnswer,
+    reviewTeamAnswer,
     showLeaderboard,
     showWinner,
     playAgain,

@@ -3,18 +3,19 @@ import { Navigate, useParams } from "react-router-dom";
 import { useClientId } from "../hooks/useClientId";
 import { useRoomChannel } from "../hooks/useRoomChannel";
 import { useGameRoom } from "../hooks/useGameRoom";
-import { getQuestionById, type Question } from "../data/questions";
-import { computeWinners, isAnswerCorrect, validateTeamName } from "../utils/scoring";
+import { getQuestionById, type Question, type TypedAnswerQuestion } from "../data/questions";
+import { computeWinners, validateTeamName } from "../utils/scoring";
 import PlayerList from "../components/PlayerList";
 import LoadingScreen from "../components/LoadingScreen";
 import CompetitorLeaderboard from "../components/CompetitorLeaderboard";
 import type { RoomPlayer } from "../types/room";
-import type { Competitor, TeamRecord } from "../types/game";
+import type { Competitor, GradingStatus, TeamRecord } from "../types/game";
 import { playerToCompetitor, teamToCompetitor } from "../types/game";
 import "./PlayerRoomPage.css";
 
 const DISPLAY_NAME_KEY = "trivia-night:display-name";
 const KNOWN_INSTANCE_KEY_PREFIX = "trivia-night:known-instance:";
+const TYPED_ANSWER_MAX_LENGTH = 200;
 
 /**
  * Guards on having a display name before connecting to the room - a
@@ -65,13 +66,19 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
     players,
     teams,
     myAnswerOptionId,
+    myTypedAnswerText,
+    myGradingStatus,
     myTeamId,
     myTeamAnswerOptionId,
+    myTeamTypedAnswerText,
+    myTeamGradingStatus,
     createTeam,
     joinTeam,
     leaveTeam,
     submitAnswer,
+    submitTypedAnswer,
     submitTeamAnswer,
+    submitTeamTypedAnswer,
   } = useGameRoom({ roomCode, self });
 
   const hostPresent = presencePlayers.some((player) => player.isHost);
@@ -138,6 +145,7 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
     : scorablePlayers.map(playerToCompetitor);
   const myCompetitorId = isTeamMode ? myTeamId : self.clientId;
   const unitLabel = isTeamMode ? "team" : "you";
+  const hasTeam = !isTeamMode || myTeamId !== null;
 
   return (
     <div className="player-room">
@@ -176,21 +184,31 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
           </>
         ))}
 
-      {room.phase === "question" && question && (
-        <QuestionAnswering
-          question={question}
-          isTeamMode={isTeamMode}
-          hasTeam={!isTeamMode || myTeamId !== null}
-          selectedOptionId={isTeamMode ? myTeamAnswerOptionId : myAnswerOptionId}
-          onSelect={(optionId) => void (isTeamMode ? submitTeamAnswer(optionId) : submitAnswer(optionId))}
-        />
-      )}
+      {room.phase === "question" &&
+        question &&
+        (question.answerMethod === "multiple_choice" ? (
+          <QuestionAnswering
+            question={question}
+            isTeamMode={isTeamMode}
+            hasTeam={hasTeam}
+            selectedOptionId={isTeamMode ? myTeamAnswerOptionId : myAnswerOptionId}
+            onSelect={(optionId) => void (isTeamMode ? submitTeamAnswer(optionId) : submitAnswer(optionId))}
+          />
+        ) : (
+          <TypedAnswerQuestionPhase
+            question={question}
+            isTeamMode={isTeamMode}
+            hasTeam={hasTeam}
+            submittedText={isTeamMode ? myTeamTypedAnswerText : myTypedAnswerText}
+            onSubmit={(text) => (isTeamMode ? submitTeamTypedAnswer(text) : submitTypedAnswer(text))}
+          />
+        ))}
 
       {room.phase === "reveal" && question && (
         <RevealResult
           question={question}
           isTeamMode={isTeamMode}
-          myAnswerOptionId={isTeamMode ? myTeamAnswerOptionId : myAnswerOptionId}
+          gradingStatus={isTeamMode ? myTeamGradingStatus : myGradingStatus}
         />
       )}
 
@@ -368,6 +386,8 @@ function QuestionAnswering({
   selectedOptionId: string | null;
   onSelect: (optionId: string) => void;
 }) {
+  if (question.answerMethod !== "multiple_choice") return null;
+
   return (
     <div className="player-question">
       <h1>{question.prompt}</h1>
@@ -395,7 +415,9 @@ function QuestionAnswering({
           </div>
           {selectedOptionId ? (
             <p className="player-room-status" role="status">
-              {isTeamMode ? "Team answer updated — anyone on your team can change this until the reveal." : "Recorded — you can change this until the reveal."}
+              {isTeamMode
+                ? "Team answer updated — anyone on your team can change this until the reveal."
+                : "Recorded — you can change this until the reveal."}
             </p>
           ) : (
             <p className="player-room-status">
@@ -408,32 +430,139 @@ function QuestionAnswering({
   );
 }
 
+function TypedAnswerQuestionPhase({
+  question,
+  isTeamMode,
+  hasTeam,
+  submittedText,
+  onSubmit,
+}: {
+  question: TypedAnswerQuestion;
+  isTeamMode: boolean;
+  hasTeam: boolean;
+  submittedText: string | null;
+  onSubmit: (text: string) => Promise<void>;
+}) {
+  return (
+    <div className="player-question">
+      <h1>{question.prompt}</h1>
+      {isTeamMode && !hasTeam ? (
+        <p className="player-room-warning">You didn&rsquo;t join a team before the game started.</p>
+      ) : (
+        <TypedAnswerInput isTeamMode={isTeamMode} submittedText={submittedText} onSubmit={onSubmit} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The input box is deliberately never pre-filled or synced from
+ * submittedText: it is the player's own private, unsent draft, and must
+ * stay untouched if a teammate's Submit changes the shared answer out
+ * from under them (the "Player A typing while Player B submits" edge
+ * case). "Current answer"/"Team answer" is shown as a separate,
+ * always-current readout above the form instead of being merged into
+ * it. Typing never writes anywhere; only Submit does.
+ *
+ * A blank Submit is blocked with inline validation rather than treated
+ * as silently clearing the answer - accidentally clearing a real
+ * submitted answer with an empty tap would be a worse failure mode than
+ * asking the player to type something first.
+ */
+function TypedAnswerInput({
+  isTeamMode,
+  submittedText,
+  onSubmit,
+}: {
+  isTeamMode: boolean;
+  submittedText: string | null;
+  onSubmit: (text: string) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    const trimmed = draft.trim();
+    if (trimmed.length === 0) {
+      setError("Type an answer before submitting.");
+      return;
+    }
+    setError(null);
+    setBusy(true);
+    try {
+      await onSubmit(trimmed);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="player-typed-answer">
+      {submittedText !== null && (
+        <p className="player-typed-current" role="status">
+          {isTeamMode ? "Team answer: " : "Current answer: "}&ldquo;{submittedText}&rdquo;
+        </p>
+      )}
+      <form onSubmit={(event) => void handleSubmit(event)}>
+        <label htmlFor="typed-answer-input">Your answer</label>
+        <input
+          id="typed-answer-input"
+          type="text"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          maxLength={TYPED_ANSWER_MAX_LENGTH}
+          autoComplete="off"
+          disabled={busy}
+        />
+        {error && (
+          <p className="player-room-warning" role="alert">
+            {error}
+          </p>
+        )}
+        <button type="submit" className="btn btn-primary" disabled={busy}>
+          Submit
+        </button>
+      </form>
+      <p className="player-room-status">
+        {submittedText !== null
+          ? isTeamMode
+            ? "Team answer updated — anyone on your team can change this until the reveal."
+            : "You can still change this before the reveal."
+          : isTeamMode
+            ? "Type an answer and press Submit to set your team's answer."
+            : "Type your answer and press Submit."}
+      </p>
+    </div>
+  );
+}
+
 function RevealResult({
   question,
   isTeamMode,
-  myAnswerOptionId,
+  gradingStatus,
 }: {
   question: Question;
   isTeamMode: boolean;
-  myAnswerOptionId: string | null;
+  gradingStatus: GradingStatus | null;
 }) {
-  const correctOption = question.options.find((option) => option.id === question.correctOptionId);
-  const wasCorrect = isAnswerCorrect(myAnswerOptionId ?? undefined, question);
+  const correctAnswerText =
+    question.answerMethod === "multiple_choice"
+      ? question.options.find((option) => option.id === question.correctOptionId)?.text
+      : question.correctAnswer;
 
-  const heading = wasCorrect
-    ? isTeamMode
-      ? "Your team got it! ✓"
-      : "Correct! ✓"
-    : myAnswerOptionId
-      ? "Not this time"
-      : isTeamMode
-        ? "Your team didn't answer"
-        : "You didn't answer";
+  const heading = (() => {
+    if (gradingStatus === "correct") return isTeamMode ? "Your team got it! ✓" : "Correct! ✓";
+    if (gradingStatus === "pending_review") return "Your answer is being checked.";
+    if (gradingStatus === "incorrect") return "Not this time";
+    return isTeamMode ? "Your team didn't answer" : "You didn't answer";
+  })();
 
   return (
     <div className="player-reveal">
       <h1>{heading}</h1>
-      <p>The answer was {correctOption?.text}.</p>
+      <p>The answer was {correctAnswerText}.</p>
     </div>
   );
 }
@@ -459,7 +588,9 @@ function EndedView({
       <h1>{iWon ? "You won! 🎉" : "Game over"}</h1>
       {!iWon && winners.length > 0 && (
         <p className="player-room-status">
-          {winners.length === 1 ? `${winners[0].displayName} wins!` : `${winners.map((w) => w.displayName).join(", ")} tie for the win!`}
+          {winners.length === 1
+            ? `${winners[0].displayName} wins!`
+            : `${winners.map((w) => w.displayName).join(", ")} tie for the win!`}
         </p>
       )}
       {mine && myRank > 0 && (

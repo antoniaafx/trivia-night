@@ -1,10 +1,11 @@
 import type { Question } from "../data/questions";
-import { scoreForAnswer } from "../utils/scoring";
+import { gradeSubmission, pointsForGrade, sumPointsAwarded } from "../utils/scoring";
 import { supabase } from "./supabaseClient";
 import { isPhaseTransitionAllowed } from "../types/game";
 import type {
   AnswerRecord,
   CompetitionStyle,
+  GradingStatus,
   PlayerRecord,
   RoomPhase,
   RoomRecord,
@@ -42,9 +43,14 @@ interface PlayerRow {
 interface AnswerRow {
   room_code: string;
   game_instance_id: string;
+  question_id: string;
   client_id: string;
-  option_id: string;
+  option_id: string | null;
+  text_answer: string | null;
+  grading_status: string;
+  points_awarded: number;
   answered_at: string;
+  reviewed_at: string | null;
 }
 
 interface TeamRow {
@@ -58,9 +64,14 @@ interface TeamRow {
 interface TeamAnswerRow {
   room_code: string;
   game_instance_id: string;
+  question_id: string;
   team_id: string;
-  option_id: string;
+  option_id: string | null;
+  text_answer: string | null;
+  grading_status: string;
+  points_awarded: number;
   answered_at: string;
+  reviewed_at: string | null;
 }
 
 function mapRoomRow(row: RoomRow): RoomRecord {
@@ -92,9 +103,14 @@ function mapAnswerRow(row: AnswerRow): AnswerRecord {
   return {
     roomCode: row.room_code,
     gameInstanceId: row.game_instance_id,
+    questionId: row.question_id,
     clientId: row.client_id,
     optionId: row.option_id,
+    textAnswer: row.text_answer,
+    gradingStatus: row.grading_status as GradingStatus,
+    pointsAwarded: row.points_awarded,
     answeredAt: row.answered_at,
+    reviewedAt: row.reviewed_at,
   };
 }
 
@@ -112,9 +128,14 @@ function mapTeamAnswerRow(row: TeamAnswerRow): TeamAnswerRecord {
   return {
     roomCode: row.room_code,
     gameInstanceId: row.game_instance_id,
+    questionId: row.question_id,
     teamId: row.team_id,
     optionId: row.option_id,
+    textAnswer: row.text_answer,
+    gradingStatus: row.grading_status as GradingStatus,
+    pointsAwarded: row.points_awarded,
     answeredAt: row.answered_at,
+    reviewedAt: row.reviewed_at,
   };
 }
 
@@ -136,13 +157,22 @@ export async function fetchPlayers(roomCode: string): Promise<PlayerRecord[]> {
   return (data ?? []).map((row) => mapPlayerRow(row as PlayerRow));
 }
 
-export async function fetchAnswers(roomCode: string, gameInstanceId: string): Promise<AnswerRecord[]> {
-  const { data, error } = await supabase
+/** Omitting questionId returns every question's answers for this instance - used for total-score reconciliation. */
+export async function fetchAnswers(
+  roomCode: string,
+  gameInstanceId: string,
+  questionId?: string,
+): Promise<AnswerRecord[]> {
+  let query = supabase
     .from("room_answers")
     .select("*")
     .eq("room_code", roomCode)
     .eq("game_instance_id", gameInstanceId);
+  if (questionId !== undefined) {
+    query = query.eq("question_id", questionId);
+  }
 
+  const { data, error } = await query;
   if (error) throw error;
   return (data ?? []).map((row) => mapAnswerRow(row as AnswerRow));
 }
@@ -154,13 +184,22 @@ export async function fetchTeams(roomCode: string): Promise<TeamRecord[]> {
   return (data ?? []).map((row) => mapTeamRow(row as TeamRow));
 }
 
-export async function fetchTeamAnswers(roomCode: string, gameInstanceId: string): Promise<TeamAnswerRecord[]> {
-  const { data, error } = await supabase
+/** Omitting questionId returns every question's answers for this instance - used for total-score reconciliation. */
+export async function fetchTeamAnswers(
+  roomCode: string,
+  gameInstanceId: string,
+  questionId?: string,
+): Promise<TeamAnswerRecord[]> {
+  let query = supabase
     .from("room_team_answers")
     .select("*")
     .eq("room_code", roomCode)
     .eq("game_instance_id", gameInstanceId);
+  if (questionId !== undefined) {
+    query = query.eq("question_id", questionId);
+  }
 
+  const { data, error } = await query;
   if (error) throw error;
   return (data ?? []).map((row) => mapTeamAnswerRow(row as TeamAnswerRow));
 }
@@ -263,44 +302,98 @@ export async function cleanupEmptyTeams(roomCode: string): Promise<void> {
   if (error) throw error;
 }
 
-/** Change/record a player's answer. Same primary key on every call, so duplicate taps never duplicate rows. */
+/** Change/record a player's Multiple Choice answer. Same primary key on every call, so duplicate taps never duplicate rows. */
 export async function submitAnswer(
   roomCode: string,
   gameInstanceId: string,
+  questionId: string,
   clientId: string,
   optionId: string,
 ): Promise<void> {
-  const { error } = await supabase
-    .from("room_answers")
-    .upsert(
-      { room_code: roomCode, game_instance_id: gameInstanceId, client_id: clientId, option_id: optionId },
-      { onConflict: "room_code,game_instance_id,client_id" },
-    );
+  const { error } = await supabase.from("room_answers").upsert(
+    {
+      room_code: roomCode,
+      game_instance_id: gameInstanceId,
+      question_id: questionId,
+      client_id: clientId,
+      option_id: optionId,
+    },
+    { onConflict: "room_code,game_instance_id,question_id,client_id" },
+  );
+
+  if (error) throw error;
+}
+
+/** Change/record a player's Typed Answer submission. The original text is preserved verbatim; grading happens later, at Reveal. */
+export async function submitTypedAnswer(
+  roomCode: string,
+  gameInstanceId: string,
+  questionId: string,
+  clientId: string,
+  textAnswer: string,
+): Promise<void> {
+  const { error } = await supabase.from("room_answers").upsert(
+    {
+      room_code: roomCode,
+      game_instance_id: gameInstanceId,
+      question_id: questionId,
+      client_id: clientId,
+      text_answer: textAnswer,
+    },
+    { onConflict: "room_code,game_instance_id,question_id,client_id" },
+  );
 
   if (error) throw error;
 }
 
 /**
- * Change/record a team's shared answer. Same primary key regardless of
- * which teammate taps, so two teammates tapping different options at
- * nearly the same instant both upsert the *same* row - Postgres
- * serializes the two writes, and whichever commits last is
- * deterministically the team's answer. Every client reconciles to that
- * one row via the realtime subscription; no client-side timestamp
+ * Change/record a team's shared Multiple Choice answer. Same primary
+ * key regardless of which teammate taps, so two teammates tapping
+ * different options at nearly the same instant both upsert the *same*
+ * row - Postgres serializes the two writes, and whichever commits last
+ * is deterministically the team's answer. Every client reconciles to
+ * that one row via the realtime subscription; no client-side timestamp
  * comparison is involved.
  */
 export async function submitTeamAnswer(
   roomCode: string,
   gameInstanceId: string,
+  questionId: string,
   teamId: string,
   optionId: string,
 ): Promise<void> {
-  const { error } = await supabase
-    .from("room_team_answers")
-    .upsert(
-      { room_code: roomCode, game_instance_id: gameInstanceId, team_id: teamId, option_id: optionId },
-      { onConflict: "room_code,game_instance_id,team_id" },
-    );
+  const { error } = await supabase.from("room_team_answers").upsert(
+    {
+      room_code: roomCode,
+      game_instance_id: gameInstanceId,
+      question_id: questionId,
+      team_id: teamId,
+      option_id: optionId,
+    },
+    { onConflict: "room_code,game_instance_id,question_id,team_id" },
+  );
+
+  if (error) throw error;
+}
+
+/** Change/record a team's shared Typed Answer submission - same upsert semantics as submitTeamAnswer. */
+export async function submitTeamTypedAnswer(
+  roomCode: string,
+  gameInstanceId: string,
+  questionId: string,
+  teamId: string,
+  textAnswer: string,
+): Promise<void> {
+  const { error } = await supabase.from("room_team_answers").upsert(
+    {
+      room_code: roomCode,
+      game_instance_id: gameInstanceId,
+      question_id: questionId,
+      team_id: teamId,
+      text_answer: textAnswer,
+    },
+    { onConflict: "room_code,game_instance_id,question_id,team_id" },
+  );
 
   if (error) throw error;
 }
@@ -345,6 +438,74 @@ async function deleteTeamAnswersForRoom(roomCode: string): Promise<void> {
   if (error) throw error;
 }
 
+async function gradeAndPersistAnswer(answer: AnswerRecord, question: Question): Promise<void> {
+  const status = gradeSubmission(question, { optionId: answer.optionId, textAnswer: answer.textAnswer });
+  const points = pointsForGrade(status, question);
+
+  const { error } = await supabase
+    .from("room_answers")
+    .update({ grading_status: status, points_awarded: points })
+    .eq("room_code", answer.roomCode)
+    .eq("game_instance_id", answer.gameInstanceId)
+    .eq("question_id", answer.questionId)
+    .eq("client_id", answer.clientId);
+
+  if (error) throw error;
+}
+
+async function gradeAndPersistTeamAnswer(answer: TeamAnswerRecord, question: Question): Promise<void> {
+  const status = gradeSubmission(question, { optionId: answer.optionId, textAnswer: answer.textAnswer });
+  const points = pointsForGrade(status, question);
+
+  const { error } = await supabase
+    .from("room_team_answers")
+    .update({ grading_status: status, points_awarded: points })
+    .eq("room_code", answer.roomCode)
+    .eq("game_instance_id", answer.gameInstanceId)
+    .eq("question_id", answer.questionId)
+    .eq("team_id", answer.teamId);
+
+  if (error) throw error;
+}
+
+/**
+ * Recomputes every competitor's total score as the sum of
+ * points_awarded across *every* question answered so far this game
+ * instance, and writes that sum. Recomputing from scratch (rather than
+ * incrementing a running total) is what makes this safe to call after
+ * every grading event - Reveal, or a Host Accept/Reject - without ever
+ * double-counting: calling it twice in a row with unchanged underlying
+ * data always produces the same total.
+ */
+async function recomputeScores(
+  roomCode: string,
+  gameInstanceId: string,
+  competitionStyle: CompetitionStyle,
+): Promise<void> {
+  if (competitionStyle === "team") {
+    const [teams, allTeamAnswers] = await Promise.all([
+      fetchTeams(roomCode),
+      fetchTeamAnswers(roomCode, gameInstanceId),
+    ]);
+    await Promise.all(
+      teams.map((team) => {
+        const thisTeamsAnswers = allTeamAnswers.filter((answer) => answer.teamId === team.id);
+        return setTeamScore(roomCode, team.id, sumPointsAwarded(thisTeamsAnswers));
+      }),
+    );
+  } else {
+    const [players, allAnswers] = await Promise.all([fetchPlayers(roomCode), fetchAnswers(roomCode, gameInstanceId)]);
+    await Promise.all(
+      players
+        .filter((player) => !player.isHost)
+        .map((player) => {
+          const thisPlayersAnswers = allAnswers.filter((answer) => answer.clientId === player.clientId);
+          return setPlayerScore(roomCode, player.clientId, sumPointsAwarded(thisPlayersAnswers));
+        }),
+    );
+  }
+}
+
 /**
  * The only way the app ever changes `phase`. Refuses anything not in
  * ALLOWED_PHASE_TRANSITIONS, and the `.eq("phase", fromPhase)` clause is
@@ -378,60 +539,103 @@ export async function transitionPhase(
 }
 
 /**
- * Reveal is the one moment scoring happens: computed once, from the
- * authoritative answers at that instant, and written before the phase
- * flips - so by the time any client sees "reveal" over realtime, scores
- * are already correct. A late-arriving answer write after this point
- * simply isn't read by anything anymore; it cannot retroactively change
- * a score that's already been computed.
+ * Reveal grades every submitted answer for the current question (Solo:
+ * each player once; Team: each team once, regardless of member count -
+ * the shared answer is graded exactly one time, never per member), then
+ * recomputes every competitor's running total, then flips the phase -
+ * so by the time any client sees "reveal" over realtime, grading and
+ * scores are already written. A late-arriving answer write after this
+ * point simply isn't read by anything anymore; it cannot retroactively
+ * change a score that's already been computed.
  *
- * Branches on competitionStyle: Solo grades each player once; Team
- * grades each team once, regardless of how many members it has - the
- * team's shared answer is graded exactly one time, never per member.
+ * Multiple Choice grades straight to correct/incorrect here, same as
+ * Milestone 2/3. Typed Answer may also land on pending_review, which
+ * contributes 0 points until a Host resolves it via reviewAnswer/
+ * reviewTeamAnswer below - recomputeScores is what makes that later
+ * resolution update the total safely.
  */
 export async function revealAndScore(
   roomCode: string,
   gameInstanceId: string,
+  questionId: string,
   competitionStyle: CompetitionStyle,
   question: Question,
 ): Promise<{ ok: boolean }> {
   if (competitionStyle === "team") {
-    const [teams, teamAnswers] = await Promise.all([
-      fetchTeams(roomCode),
-      fetchTeamAnswers(roomCode, gameInstanceId),
-    ]);
-    const optionByTeamId = new Map(teamAnswers.map((answer) => [answer.teamId, answer.optionId]));
-
-    await Promise.all(
-      teams.map((team) => setTeamScore(roomCode, team.id, scoreForAnswer(optionByTeamId.get(team.id), question))),
-    );
+    const teamAnswers = await fetchTeamAnswers(roomCode, gameInstanceId, questionId);
+    await Promise.all(teamAnswers.map((answer) => gradeAndPersistTeamAnswer(answer, question)));
   } else {
-    const [players, answers] = await Promise.all([
-      fetchPlayers(roomCode),
-      fetchAnswers(roomCode, gameInstanceId),
-    ]);
-    const optionByClientId = new Map(answers.map((answer) => [answer.clientId, answer.optionId]));
-
-    await Promise.all(
-      players
-        .filter((player) => !player.isHost)
-        .map((player) =>
-          setPlayerScore(roomCode, player.clientId, scoreForAnswer(optionByClientId.get(player.clientId), question)),
-        ),
-    );
+    const answers = await fetchAnswers(roomCode, gameInstanceId, questionId);
+    await Promise.all(answers.map((answer) => gradeAndPersistAnswer(answer, question)));
   }
 
+  await recomputeScores(roomCode, gameInstanceId, competitionStyle);
+
   return transitionPhase(roomCode, "question", "reveal");
+}
+
+/**
+ * A Host's Accept/Reject decision on a pending_review Typed Answer.
+ * Always overwrites grading_status/points_awarded/reviewed_at to the
+ * new decision and then recomputes the competitor's total from scratch
+ * - clicking the same decision twice, or changing Accept to Reject,
+ * can never double-count or leave a stale score behind.
+ */
+export async function reviewAnswer(
+  roomCode: string,
+  gameInstanceId: string,
+  questionId: string,
+  clientId: string,
+  decision: "correct" | "incorrect",
+  question: Question,
+): Promise<void> {
+  const points = decision === "correct" ? question.points : 0;
+  const { error } = await supabase
+    .from("room_answers")
+    .update({ grading_status: decision, points_awarded: points, reviewed_at: new Date().toISOString() })
+    .eq("room_code", roomCode)
+    .eq("game_instance_id", gameInstanceId)
+    .eq("question_id", questionId)
+    .eq("client_id", clientId);
+
+  if (error) throw error;
+
+  await recomputeScores(roomCode, gameInstanceId, "solo");
+}
+
+/** Team-answer counterpart to reviewAnswer - same reasoning, keyed by teamId. */
+export async function reviewTeamAnswer(
+  roomCode: string,
+  gameInstanceId: string,
+  questionId: string,
+  teamId: string,
+  decision: "correct" | "incorrect",
+  question: Question,
+): Promise<void> {
+  const points = decision === "correct" ? question.points : 0;
+  const { error } = await supabase
+    .from("room_team_answers")
+    .update({ grading_status: decision, points_awarded: points, reviewed_at: new Date().toISOString() })
+    .eq("room_code", roomCode)
+    .eq("game_instance_id", gameInstanceId)
+    .eq("question_id", questionId)
+    .eq("team_id", teamId);
+
+  if (error) throw error;
+
+  await recomputeScores(roomCode, gameInstanceId, "team");
 }
 
 /**
  * Play Again: wipes prior answers and scores (both Solo and Team tables
  * - harmless no-ops for whichever mode isn't in use, since those tables
  * are simply empty), then moves back to lobby under a brand-new
- * game_instance_id. Not wrapped in a single DB transaction (no RPC in
- * this milestone) - acceptable since this is a single-host-triggered,
- * low-frequency reset with no concurrent writers. Teams and player
- * memberships are deliberately left untouched.
+ * game_instance_id. Deleting by room_code alone clears every question's
+ * answers, not just the current one, along with whatever grading/review
+ * state lived on those rows. Not wrapped in a single DB transaction (no
+ * RPC in this milestone) - acceptable since this is a single-host-
+ * triggered, low-frequency reset with no concurrent writers. Teams and
+ * player memberships are deliberately left untouched.
  */
 export async function resetRoomForNewGame(
   roomCode: string,

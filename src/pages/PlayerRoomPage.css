@@ -142,3 +142,39 @@
   color: var(--color-text);
   font-size: 1rem;
 }
+
+.player-typed-answer {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.player-typed-answer form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: stretch;
+  text-align: left;
+}
+
+.player-typed-answer input {
+  min-height: 56px;
+  padding: 0.9rem 1.1rem;
+  border-radius: var(--radius-md);
+  border: 2px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 1.05rem;
+}
+
+.player-typed-answer input:focus-visible {
+  outline: 3px solid var(--color-electric-blue);
+  outline-offset: 2px;
+}
+
+.player-typed-current {
+  font-size: 1.1rem;
+  font-weight: 600;
+}

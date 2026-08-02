@@ -15,8 +15,10 @@ export type RoomPhase = "lobby" | "question" | "reveal" | "leaderboard" | "ended
  */
 export const ALLOWED_PHASE_TRANSITIONS: Record<RoomPhase, RoomPhase[]> = {
   lobby: ["question"],
+  // "question" again advances to the next hardcoded question; "leaderboard"
+  // is reached only once there is no next question (see getNextQuestionId).
   question: ["reveal"],
-  reveal: ["leaderboard"],
+  reveal: ["leaderboard", "question"],
   leaderboard: ["ended"],
   ended: ["lobby"], // Play Again
 };
@@ -60,13 +62,34 @@ export interface PlayerRecord {
   teamId: string | null;
 }
 
-/** One row per player per game instance - Solo Mode only. */
+/**
+ * Every Typed Answer submission is graded into exactly one of these,
+ * persisted on the answer row itself so every client reads the same
+ * authoritative result instead of recomputing it (recomputing would be
+ * impossible anyway once a Host review decision is involved - there is
+ * no pure function for "did the Host accept this"). Multiple Choice
+ * answers use only "correct"/"incorrect", written at Reveal alongside
+ * Typed Answer's automatic grading; "pending_review" only ever applies
+ * to a Typed Answer that matched a possible-typo, not an exact answer.
+ */
+export type GradingStatus = "ungraded" | "correct" | "incorrect" | "pending_review";
+
+/** One row per player per question per game instance - Solo Mode only. */
 export interface AnswerRecord {
   roomCode: string;
   gameInstanceId: string;
+  questionId: string;
   clientId: string;
-  optionId: string;
+  /** Multiple Choice only. Exactly one of optionId/textAnswer is ever set. */
+  optionId: string | null;
+  /** Typed Answer only - the original submitted text, never overwritten by normalization. */
+  textAnswer: string | null;
+  gradingStatus: GradingStatus;
+  /** What this specific answer contributed to the competitor's score, summed across questions to get their total. */
+  pointsAwarded: number;
   answeredAt: string;
+  /** Set only once a Host has resolved a pending_review answer. */
+  reviewedAt: string | null;
 }
 
 /** A room_teams row - Team Mode only. */
@@ -78,13 +101,18 @@ export interface TeamRecord {
   score: number;
 }
 
-/** One row per team per game instance - Team Mode only. Same shape and upsert semantics as AnswerRecord. */
+/** One row per team per question per game instance - Team Mode only. Same shape and upsert semantics as AnswerRecord. */
 export interface TeamAnswerRecord {
   roomCode: string;
   gameInstanceId: string;
+  questionId: string;
   teamId: string;
-  optionId: string;
+  optionId: string | null;
+  textAnswer: string | null;
+  gradingStatus: GradingStatus;
+  pointsAwarded: number;
   answeredAt: string;
+  reviewedAt: string | null;
 }
 
 /**
