@@ -38,7 +38,13 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
   return (
     <div className="player-room">
       <p className="player-room-status">
-        {connectionStatus === "connected" ? `You're in! Room ${roomCode}` : "Connecting..."}
+        {connectionStatus === "connected"
+          ? `You're in! Room ${roomCode}`
+          : connectionStatus === "unconfigured"
+            ? "Not connected — see the setup notice above"
+            : connectionStatus === "disconnected"
+              ? "Connection lost — reconnecting..."
+              : "Connecting..."}
       </p>
 
       {phase === "lobby" ? (

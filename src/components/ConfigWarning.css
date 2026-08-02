@@ -1,0 +1,17 @@
+.config-warning {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  padding: 0.6rem var(--space-md);
+  background: var(--color-orange);
+  color: var(--color-text-inverse);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.config-warning code {
+  font-family: ui-monospace, monospace;
+  background: rgba(0, 0, 0, 0.15);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}

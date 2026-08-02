@@ -35,7 +35,13 @@ function HostControlPanelPage() {
           Room code: <strong>{roomCode}</strong>
         </p>
         <p className="host-lobby-status">
-          {connectionStatus === "connected" ? "Room is live" : "Connecting..."}
+          {connectionStatus === "connected"
+            ? "Room is live"
+            : connectionStatus === "unconfigured"
+              ? "Not connected — see the setup notice above"
+              : connectionStatus === "disconnected"
+                ? "Connection lost — reconnecting..."
+                : "Connecting..."}
         </p>
       </div>
 

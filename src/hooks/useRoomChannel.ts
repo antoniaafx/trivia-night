@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { supabase } from "../services/supabaseClient";
+import { isSupabaseConfigured, supabase } from "../services/supabaseClient";
 import type { RoomPhase, RoomPlayer } from "../types/room";
 
 interface UseRoomChannelOptions {
@@ -8,7 +8,11 @@ interface UseRoomChannelOptions {
   self: RoomPlayer;
 }
 
-export type ConnectionStatus = "connecting" | "connected" | "disconnected";
+// "unconfigured" is distinct from "connecting": it means no connection
+// attempt was ever made, because there's nothing valid to connect to.
+// Without this, a missing .env.local would just look like an indefinite
+// spinner instead of a clear, actionable state.
+export type ConnectionStatus = "unconfigured" | "connecting" | "connected" | "disconnected";
 
 interface UseRoomChannelResult {
   players: RoomPlayer[];
@@ -34,10 +38,21 @@ interface UseRoomChannelResult {
 export function useRoomChannel({ roomCode, self }: UseRoomChannelOptions): UseRoomChannelResult {
   const [players, setPlayers] = useState<RoomPlayer[]>([]);
   const [phase, setPhase] = useState<RoomPhase>("lobby");
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("connecting");
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
+    isSupabaseConfigured ? "connecting" : "unconfigured",
+  );
   const channelRef = useRef<RealtimeChannel | null>(null);
 
   useEffect(() => {
+    if (!isSupabaseConfigured) {
+      // Never attempt to open a channel against placeholder credentials -
+      // that would eventually time out and look identical to a real
+      // connection failure, when the actual problem is simpler and fully
+      // fixable by the developer right now.
+      setConnectionStatus("unconfigured");
+      return;
+    }
+
     setConnectionStatus("connecting");
 
     const channel = supabase.channel(`room:${roomCode}`, {
