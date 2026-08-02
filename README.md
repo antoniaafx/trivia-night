@@ -6,6 +6,10 @@ players join and answer from their own phones.
 This is the **project foundation** — routing, layout, and design system are in
 place, but the multiplayer/game logic has not been built yet.
 
+Product direction (vision, personas, flows, decisions) is documented in
+[`docs/00-PRODUCT-BIBLE.md`](docs/00-PRODUCT-BIBLE.md) — start there before
+making UX or feature decisions.
+
 ## Tech stack
 
 - [Vite](https://vitejs.dev/) — build tool and dev server
