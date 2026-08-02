@@ -14,7 +14,7 @@ This document will define the technical approach — realtime architecture, data
 3. Supabase Usage (realtime channels, storage, and whether/how auth is involved)
 4. Client Architecture (building on the existing Vite/React/TypeScript foundation)
 5. Scaling Considerations (today's 2–30 player / 6–12 team target, with room to grow)
-6. Remote-Play Readiness (what today's choices must not foreclose, per `08-DECISIONS.md`, D-002)
+6. Remote and Hybrid Joining (already a natural consequence of link/QR/room-code joining per D-018 — this section instead covers presentation-screen responsiveness, latency/reconnect tolerance across variable networks, and link-sharing safeguards, per D-002 as amended and D-018)
 7. Non-Functional Requirements This Architecture Must Satisfy
 
 ## Current Status
@@ -30,6 +30,8 @@ Not started. This is deliberately the last document in the set — it should be 
 ## Questions That Must Be Answered Before This Document Can Be Completed
 
 - What are the actual non-functional requirements (latency tolerance, reconnect/offline behaviour, acceptable failure modes) once defined in `01-PRD.md`?
-- Does the "remote play must not be foreclosed" constraint (`08-DECISIONS.md`, D-002) imply any specific architectural pattern now — for example, avoiding assumptions that the host and players share a local network?
+- Given `08-DECISIONS.md` D-018 confirms clients never assume a shared local network, what are the specific non-functional tolerances (latency, reconnect windows) needed to keep remote and in-person players feeling equally "in the game"?
+- What does the unified team-of-N data model (`08-DECISIONS.md`, D-017) imply for the schema — is a team simply a row with a variable-length member list, and does that cleanly support both Competition Styles without a schema fork?
+- What lightweight safeguard (e.g. link expiry, join rate-limiting) is appropriate for Version 1 to keep invite-only links from becoming effectively public, per the caveat noted in `08-DECISIONS.md`, D-018?
 - What is the realistic ceiling to architect for now, given the stated Version 1 scale (2–30 players, 6–12 teams), while still leaving room to grow without a full rebuild?
 - How much of the existing scaffolding (`src/services/supabaseClient.ts`, the current folder structure) should this document assume as fixed versus open to revision?

@@ -44,6 +44,7 @@ Not started as a formal document. The Product Vision and Target Audience section
 
 - Should Goals be quantified now (e.g. target host retention, session completion rate) or remain qualitative until there is real usage data to calibrate against?
 - The team captain model (open — see `08-DECISIONS.md`, D-015) blocks the Player Flow, Screen-by-Screen, and parts of the Functional Requirements sections.
+- Competition Style (team/individual) and Play Environment (in-person/online/hybrid) are now resolved at the product level (see `08-DECISIONS.md`, D-016–D-019) and should inform Core Features and Screen-by-Screen once written — this PRD should restate them, not re-litigate them.
 - How much implementation detail belongs in "Database Entities (high level)" here versus being fully deferred to `07-TECHNICAL-ARCHITECTURE.md`?
 - Are Monetisation Ideas ready to be brainstormed now, or premature before the core UX and audience decisions are fully settled?
 - What is genuinely "Version 1" versus "Future Roadmap" once features are specified in detail — this PRD should not silently expand scope beyond what has been agreed in `08-DECISIONS.md`.

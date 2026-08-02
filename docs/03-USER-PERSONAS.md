@@ -31,3 +31,4 @@ Not started. The primary design anchor ("The Enthusiastic Amateur Host") and the
 - Should there be an explicit, separate Player persona, given players have almost no setup burden and a much thinner relationship with the product than hosts?
 - Should an "anti-persona" (e.g. an IT administrator expecting enterprise-grade controls, or a professional quizmaster expecting a full content platform) be documented explicitly, to keep scope decisions honest over time?
 - Should secondary personas (bar quizmaster, society organiser) be written now, or deferred until after the primary persona and core flows are validated?
+- Now that remote/hybrid participation is a natural Version 1 capability (see `08-DECISIONS.md`, D-018), should personas include a "remote participant" or "travelling teammate" scenario, or is that premature before real usage data exists?

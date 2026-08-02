@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Title | Trivia Night — Product Bible |
-| Version | 0.1 (Draft) |
+| Version | 0.2 (Draft) |
 | Status | Draft — Foundational |
 | Last Updated | 2026-08-02 |
 | Owner | Antonia Afxentiou (Product Owner) |
@@ -100,7 +100,7 @@ A classroom application · Enterprise software · Cheap-feeling · Cluttered · 
 
 ## 10. Product Philosophy
 
-Every proposed feature must answer at least one question honestly:
+Every proposed **feature** must answer at least one question honestly:
 
 - Does this make hosting easier?
 - Does this make playing more exciting?
@@ -109,24 +109,48 @@ Every proposed feature must answer at least one question honestly:
 
 > **Principle** — If a feature answers "no" to all four, it should probably not be prioritised, regardless of how interesting it is to build.
 
+Every proposed **decision or setting** should answer a different question: does this choice change what happens next for the host or the player, in a way they would actually notice or care about? If not, the strongest UX move is usually to remove the decision entirely rather than add a control for it.
+
+> **Principle** — The best UX is often achieved not by adding options, but by removing unnecessary decisions.
+
+This is not a call to minimise every choice indiscriminately — some decisions are genuinely load-bearing and deserve to exist. The test is whether the decision changes the data, the flow, or the experience in a way that matters. Play Environment (in-person vs. online) was removed as a host-facing decision because, in this architecture, it changes nothing about what needs to be built — see [`08-DECISIONS.md`](./08-DECISIONS.md), D-016 and D-018. Competition Style (team vs. individual) was kept, and even deliberately asked earlier in the setup flow, because it does change the data model and the join experience — see D-017 and D-019. The principle is only useful if it can explain both outcomes, not just justify removing things.
+
 ## 11. The Six Experience Pillars
 
 Full detail lives in [`02-EXPERIENCE-PILLARS.md`](./02-EXPERIENCE-PILLARS.md). Summary:
 
 1. **Fun First** — the product exists to create enjoyable shared experiences.
 2. **Healthy Competition** — competition motivates without intimidating.
-3. **Social Connection** — the best moments happen between people in the room, not inside the app.
+3. **Social Connection** — the best moments happen between people, wherever they're joining from, not inside the app.
 4. **Psychological Safety** — nobody is publicly shamed for a wrong answer.
 5. **Effortless Hosting** — the host always feels confident and in control.
 6. **Create Memorable Moments** — the product is designed around emotional peaks, not just screens.
 
-## 12. Team-First Direction
+## 12. Competition Style and Play Environment
 
-> **Decision** — Team-based play is the primary Version 1 game mode. See [`08-DECISIONS.md`](./08-DECISIONS.md), D-006.
+Two separate questions were once bundled into a single "team-first" decision: **how** people compete, and **where** they're playing from. They are now treated as distinct, and only one of them is a choice the host makes.
 
-Small teams, not solo players, are the default unit of play. This is deliberate: teams encourage conversation and debate, reduce the fear of being individually wrong, create shared victories and losses, reduce phone-staring, and match the traditional pub-quiz atmosphere the product is emotionally inspired by.
+### Competition Style — how players compete
 
-> **Open Question** — Whether one designated "captain" submits each team's final answer is not yet decided. This is recorded as an open decision to be explored during Player Flow and Core Feature definition — not resolved here. See [`08-DECISIONS.md`](./08-DECISIONS.md), D-015.
+> **Decision** — Team-based play remains the default Version 1 experience. See [`08-DECISIONS.md`](./08-DECISIONS.md), D-006.
+
+Team play is the default: it encourages conversation and debate, reduces the fear of being individually wrong, creates shared victories and losses, reduces phone-staring, and matches the traditional pub-quiz atmosphere the product is emotionally inspired by.
+
+> **Decision** — Individual competition is also available in Version 1 — not as a separate system, but as a special case of one unified model: a team can have one member or many. See [`08-DECISIONS.md`](./08-DECISIONS.md), D-017.
+
+The host selects Competition Style when creating the game, with Team pre-selected so accepting the default costs no extra effort. The choice stays editable until the first player joins, then locks for the session. See [`08-DECISIONS.md`](./08-DECISIONS.md), D-019.
+
+> **Open Question** — Whether one designated "captain" submits each team's final answer is not yet decided. This remains open for Player Flow and Core Feature definition. See [`08-DECISIONS.md`](./08-DECISIONS.md), D-015.
+
+### Play Environment — where players are located
+
+> **Decision** — Play Environment is deliberately **not** a setting the host chooses. See [`08-DECISIONS.md`](./08-DECISIONS.md), D-016 and D-018.
+
+Players join using a QR code (primary), a copyable join link (secondary), or a manually typed room code (fallback) — whichever suits where they are. Whether everyone is in the same room, one player is joining from elsewhere, or the group is fully distributed, the product behaves the same way. Hybrid participation isn't a special mode; it's simply what happens when different people use different joining methods for the same game.
+
+> **Principle** — This is a direct application of Section 10's newest principle: the strongest UX outcome here came from removing a decision, not adding one.
+
+> **Future Opportunity** — Remote participants currently have no shared physical screen to watch. A responsive "Watch Along" view is an acknowledged real requirement, deferred past Version 1. See [`08-DECISIONS.md`](./08-DECISIONS.md), D-022.
 
 ## 13. Emotional Journey
 
@@ -179,10 +203,13 @@ These are unresolved and intentionally left open. They should be revisited in th
 | Question | Where it gets resolved |
 |---|---|
 | Does a team use a single "captain" device, or can multiple team members submit? | `04-USER-FLOWS.md`, `05-FEATURE-SPECIFICATIONS.md` |
+| How should teams be formed — self-selected, auto-assigned, or host-configured — without risking social exclusion? | `04-USER-FLOWS.md`, `05-FEATURE-SPECIFICATIONS.md` |
+| What does the "Watch Along" experience look like for remote participants without a shared screen? | `06-DESIGN-SYSTEM.md` |
 | How do recurring "seasons" or leagues work without requiring player accounts? | `05-FEATURE-SPECIFICATIONS.md` |
 | What does a lightweight, non-enterprise version of host branding look like, if any? | `05-FEATURE-SPECIFICATIONS.md`, future roadmap |
-| What technical choices today would make remote play possible later without a rebuild? | `07-TECHNICAL-ARCHITECTURE.md` |
 | What does "psychological safety" mean concretely in UI copy and visual states? | `02-EXPERIENCE-PILLARS.md`, `06-DESIGN-SYSTEM.md` |
+
+> The question "what technical choices would make remote play possible later without a rebuild?" — previously listed here — is substantially resolved: see [`08-DECISIONS.md`](./08-DECISIONS.md), D-016 and D-018. What remains is the narrower, still-open questions above.
 
 ## 17. Closing Manifesto
 

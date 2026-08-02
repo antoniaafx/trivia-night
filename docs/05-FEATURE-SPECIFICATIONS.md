@@ -25,11 +25,12 @@ Not started. This document cannot be meaningfully written until [`04-USER-FLOWS.
 
 - **`04-USER-FLOWS.md`** — features exist to serve specific flow steps; this document should not invent screens that don't map back to an agreed flow.
 - **`02-EXPERIENCE-PILLARS.md`** — each feature should be checked against the Permanent Product Filter and the pillar-specific "features likely to support/weaken" guidance already documented there.
-- **`08-DECISIONS.md`** — the out-of-scope list here should stay consistent with decisions already recorded (e.g. D-013 marketplace, D-014 seasons, D-007 individual play).
+- **`08-DECISIONS.md`** — the out-of-scope list here should stay consistent with decisions already recorded (e.g. D-013 marketplace, D-014 seasons, D-022 the deferred "Watch Along" experience). Note that individual play (D-007) is superseded by D-017 and is **in scope** for Version 1 via the unified team model — it should not be listed as out of scope.
 
 ## Questions That Must Be Answered Before This Document Can Be Completed
 
 - **Blocking**: The team captain model (shared with `04-USER-FLOWS.md`; see `08-DECISIONS.md`, D-015).
+- How should team formation/auto-assignment work by default, to avoid the exclusion risk noted in `08-DECISIONS.md`, D-017?
 - What is the minimum viable question-pack format for Version 1 — multiple choice only, or also open-text/buzzer-style questions?
 - Is a "starter pack" of built-in questions a Version 1 requirement (supporting the Effortless Hosting pillar directly) or a nice-to-have?
 - Where is the line between core scoring (Version 1) and future scoring variants (streak bonuses, wildcard/comeback rounds — currently only recorded as hypotheses in `02-EXPERIENCE-PILLARS.md`)?

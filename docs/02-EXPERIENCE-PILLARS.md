@@ -109,23 +109,29 @@ Leaderboard reveals are one of the biggest "TV moment" opportunities in the prod
 
 ## Pillar 3 — Social Connection
 
+> **Note** — This pillar's scope was broadened on 2026-08-02 to explicitly cover remote and hybrid participants, not only people physically in the room. A separate "Shared Experience" pillar was proposed and deliberately folded in here instead of added as a seventh pillar. See [`08-DECISIONS.md`](./08-DECISIONS.md), D-021.
+
 **Definition**
-The best moments in the product should happen between people physically in the room — not inside the app. Phones exist to submit answers; the shared screen and face-to-face conversation are the real experience.
+The best moments in the product should happen between people — whether they're physically together or joining remotely — not inside the app in isolation. Phones exist to submit answers; conversation, shared reactions, and a shared sense of "we're all in this game together" are the real experience.
 
 **Why it matters**
-This is the pillar that most separates Trivia Night from a generic quiz app. If players spend the night staring at their own phone instead of each other, the "game show in your living room" vision fails even if the scoring works perfectly.
+This is the pillar that most separates Trivia Night from a generic quiz app. If players spend the night staring at their own phone instead of each other — or, for a remote participant, feel like a spectator rather than a real participant — the "game show" vision fails even if the scoring works perfectly.
 
 **Desired user feeling**
-Belonging, shared focus, the specific energy of a small group huddled around a decision ("wait, are we sure it's B?").
+Belonging, shared focus, the specific energy of a small group huddled around a decision ("wait, are we sure it's B?") — and, for anyone joining remotely, the feeling of genuinely being in the game rather than watching it from outside.
 
 **Host implications**
-Part of the host's role is creating space for team discussion — pacing should leave room for debate, not rush teams past it.
+Part of the host's role is creating space for discussion — pacing should leave room for debate, not rush people past it. This applies whether a team is huddled at a table or coordinating over a phone call from another location.
 
 **Player implications**
-Team-based play (see the Product Bible's Team-First Direction) is the primary mechanism here: a shared decision naturally pulls people into conversation rather than isolating them behind individual screens.
+Team-based play (the Version 1 default — see [`00-PRODUCT-BIBLE.md`](./00-PRODUCT-BIBLE.md), Section 12) is the primary mechanism for in-person social connection: a shared decision naturally pulls people into conversation rather than isolating them behind individual screens.
+
+> **Warning sign** — Individual competition, also available in Version 1 (see [`08-DECISIONS.md`](./08-DECISIONS.md), D-017), doesn't provide this same built-in mechanism — there's no shared decision to have a conversation about. This is an accepted trade-off a host makes deliberately when choosing Individual, not a gap to silently compensate for elsewhere.
 
 **Shared-screen implications**
-The shared screen should be what everyone in the room looks at together during the big moments (question reveal, leaderboard, winner) — the phone should recede into the background at exactly those moments.
+The shared screen should be what everyone looks at together during the big moments (question reveal, leaderboard, winner) — the phone should recede into the background at exactly those moments, for in-person players who can see it.
+
+> **Open Question** — Remote participants have no shared physical screen to look at, and remote teammates have no in-app way to discuss an answer together — they depend entirely on a side-channel (a phone call, their own group chat) the product doesn't provide or control. This is an honest limitation, not yet solved. See [`08-DECISIONS.md`](./08-DECISIONS.md), D-022 (the deferred "Watch Along" experience).
 
 **Good examples**
 - A visible state that implies debate is expected and encouraged, not rushed (e.g. a discussion timer rather than an instant-lock answer).
@@ -134,6 +140,7 @@ The shared screen should be what everyone in the room looks at together during t
 **Warning signs**
 - A phone screen so information-rich that players stop looking up at the shared screen entirely.
 - Any mechanic that rewards fast individual reaction time over team discussion — this would quietly undermine team play.
+- A remote participant only ever seeing their own answer screen, with nothing that makes them feel part of the room's reveal moments.
 
 **Features likely to support this pillar**
 - Deliberately minimal player-phone UI during live moments.
@@ -146,11 +153,12 @@ The shared screen should be what everyone in the room looks at together during t
 **Questions to ask in design reviews**
 - Does this feature give people in the room a reason to look at each other, or a reason to look down at their phone?
 - Would this still work if the team had to physically huddle around one phone to decide?
+- Would a remote participant feel like a real participant in this moment, or an outside observer?
 
 > **Open Question** — The "team captain" model (whether one designated device submits per team) sits inside this pillar and is not yet decided. See [`08-DECISIONS.md`](./08-DECISIONS.md), D-015, and the Product Bible, Section 12.
 
 **Possible future success signals**
-> **Hypothesis** — Candidate signal: observed or reported team-discussion time before answer submission; feedback describing the night as "fun to play together" rather than just "fun to play."
+> **Hypothesis** — Candidate signal: observed or reported team-discussion time before answer submission; feedback describing the night as "fun to play together" rather than just "fun to play" — from in-person and remote participants alike.
 
 ---
 
@@ -161,6 +169,8 @@ Nobody should feel publicly embarrassed for giving a wrong answer. Incorrect ans
 
 **Why it matters**
 Fear of looking stupid in front of friends, coworkers, or a room of strangers is the fastest way to make someone disengage from a party game — and once a team disengages, they don't come back for the rest of the night, let alone want to play again.
+
+> **Note** — Individual competition (available in Version 1 per [`08-DECISIONS.md`](./08-DECISIONS.md), D-017) removes team play's built-in blame-diffusion effect — a wrong answer belongs to one person, not a group. Aggregate-first reveal design (below) is what actually carries this pillar; it must be applied at least as rigorously in Individual mode, not treated as less necessary because "that's team mode's job."
 
 **Desired user feeling**
 Safety to guess, safety to be wrong out loud, safety to laugh at a bad answer rather than hide it.
@@ -227,6 +237,7 @@ The presentation screen should be readable and controllable from a distance — 
 - A control panel that makes the "next" action obvious and singular, rather than presenting many equally-weighted options.
 - Clear recoverability — pausing a round, correcting a mistake, or reconnecting a dropped team without restarting the game.
 - Setup that gets a host from "nothing" to "room full of joined teams" in a small number of steps.
+- A single, pre-selected default (e.g. Competition Style defaulting to Team) that a host never has to touch unless they want something different. See [`08-DECISIONS.md`](./08-DECISIONS.md), D-019.
 
 **Warning signs**
 - A control that, if tapped by accident, ends the game or loses scores with no confirmation or undo.
@@ -310,5 +321,6 @@ Pillars can pull against each other. Design reviews should expect to negotiate b
 | Suspenseful leaderboard reveals vs. protecting last-place teams | Healthy Competition ↔ Psychological Safety | Suspense should come from *rank movement and closeness*, not from lingering on who is losing. |
 | Dramatic per-question reveals vs. avoiding public exposure | Create Memorable Moments ↔ Psychological Safety | Drama should attach to aggregate outcomes and round-level moments, not to naming individual wrong answers. |
 | Rich host controls vs. simplicity for a first-time host | Effortless Hosting ↔ Create Memorable Moments | Advanced pacing and showmanship tools are valuable, but must never be required to run a basic, good game. |
+| Offering Individual competition vs. maximising Social Connection | Competition Style flexibility ↔ Social Connection | Individual play removes the built-in "shared decision" moment team play provides. This is a trade-off a host makes deliberately by choosing Individual — not a defect to compensate for elsewhere. See [`08-DECISIONS.md`](./08-DECISIONS.md), D-017. |
 
 > **Principle** — When two pillars conflict, Psychological Safety and Effortless Hosting should generally win over spectacle. A moment that excludes someone, or breaks the host's trust, is not worth the drama it creates.

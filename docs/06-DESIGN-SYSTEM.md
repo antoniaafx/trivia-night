@@ -33,3 +33,4 @@ Not started as a formal design system document. Note: an initial CSS custom-prop
 - What are the concrete accessibility requirements (contrast ratios, reduced-motion behaviour, focus visibility) this system must satisfy — this ties directly to the Accessibility Requirements section still to be written in `01-PRD.md`?
 - Is sound design in scope for Version 1 at all, or is the experience purely visual and motion-based for now?
 - How should "reveal drama" (Pillar 6) be expressed as reusable, consistent motion patterns rather than one-off animations per screen?
+- What should the deferred "Watch Along" experience (see `08-DECISIONS.md`, D-022) look like for remote participants without a shared screen, once it's prioritised — this document should track the question even though the feature itself is not Version 1 scope.
