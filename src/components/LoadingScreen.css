@@ -1,0 +1,44 @@
+.loading-screen {
+  min-height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  padding: var(--space-xl) var(--space-md);
+}
+
+.loading-dots {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.loading-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.loading-dot-purple {
+  background: var(--color-purple);
+}
+
+.loading-dot-blue {
+  background: var(--color-electric-blue);
+}
+
+.loading-dot-teal {
+  background: var(--color-teal);
+}
+
+.loading-dot-pink {
+  background: var(--color-pink);
+}
+
+.loading-message {
+  font-family: var(--font-heading);
+  color: var(--color-text-muted);
+  font-size: 1.1rem;
+}

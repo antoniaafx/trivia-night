@@ -1,0 +1,58 @@
+/* Trivia Night — colour + design token system */
+:root {
+  /* Brand hues */
+  --color-purple: #8b5cf6;
+  --color-purple-dark: #6d28d9;
+  --color-electric-blue: #00c2ff;
+  --color-blue-dark: #0369a1;
+  --color-teal: #2dd4bf;
+  --color-pink: #f472b6;
+  --color-orange: #fb923c;
+  --color-yellow: #fde047;
+
+  /* Surfaces */
+  --color-bg: #120e29;
+  --color-bg-secondary: #1b1440;
+  --color-surface: rgba(255, 255, 255, 0.06);
+  --color-surface-strong: rgba(255, 255, 255, 0.1);
+  --color-border: rgba(255, 255, 255, 0.14);
+
+  /* Text */
+  --color-text: #f5f3ff;
+  --color-text-muted: #b4add1;
+  --color-text-inverse: #17102e;
+
+  /* Gradients */
+  --gradient-hero: linear-gradient(135deg, #3b0764 0%, #1e3a8a 45%, #0f766e 100%);
+  --gradient-primary: linear-gradient(120deg, var(--color-purple), var(--color-electric-blue));
+  --gradient-warm: linear-gradient(120deg, var(--color-pink), var(--color-orange));
+  --gradient-sunny: linear-gradient(120deg, var(--color-orange), var(--color-yellow));
+  --gradient-cool: linear-gradient(120deg, var(--color-electric-blue), var(--color-teal));
+
+  /* Radii */
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 28px;
+  --radius-pill: 999px;
+
+  /* Shadows */
+  --shadow-soft: 0 10px 30px rgba(10, 6, 30, 0.35);
+  --shadow-glow-purple: 0 0 0 1px rgba(139, 92, 246, 0.4), 0 12px 40px rgba(139, 92, 246, 0.35);
+  --shadow-glow-blue: 0 0 0 1px rgba(0, 194, 255, 0.4), 0 12px 40px rgba(0, 194, 255, 0.3);
+
+  /* Typography */
+  --font-heading: "Poppins", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Inter", "Segoe UI", system-ui, sans-serif;
+
+  /* Spacing scale */
+  --space-xs: 0.5rem;
+  --space-sm: 1rem;
+  --space-md: 1.5rem;
+  --space-lg: 2.5rem;
+  --space-xl: 4rem;
+
+  /* Layout */
+  --max-content-width: 1100px;
+  --transition-fast: 150ms ease;
+  --transition-base: 250ms ease;
+}
