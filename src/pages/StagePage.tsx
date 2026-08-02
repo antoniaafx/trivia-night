@@ -1,20 +1,23 @@
 import { useParams } from "react-router-dom";
 import { useGameRoom } from "../hooks/useGameRoom";
 import { getQuestionById, type Question } from "../data/questions";
-import { computeAggregateReveal, sortLeaderboard } from "../utils/scoring";
+import { computeAggregateReveal, computeWinners } from "../utils/scoring";
 import LoadingScreen from "../components/LoadingScreen";
-import type { AnswerRecord, PlayerRecord } from "../types/game";
+import CompetitorLeaderboard from "../components/CompetitorLeaderboard";
+import type { AnswerLike } from "../utils/scoring";
+import type { Competitor } from "../types/game";
+import { playerToCompetitor, teamToCompetitor } from "../types/game";
 import "./StagePage.css";
 
 /**
  * The shared display. Read-only by design: no host controls render
  * here under any circumstance, and it never shows anything a host
  * hasn't already revealed to the room (no correct answer during the
- * question phase, no per-player answers ever).
+ * question phase, no per-player or per-team-member answers ever).
  */
 function StagePage() {
   const { roomCode = "" } = useParams<{ roomCode: string }>();
-  const { connectionStatus, loading, roomNotFound, room, players, answers } = useGameRoom({
+  const { connectionStatus, loading, roomNotFound, room, players, answers, teams, teamAnswers } = useGameRoom({
     roomCode,
     self: null,
   });
@@ -41,14 +44,26 @@ function StagePage() {
   }
 
   const question = getQuestionById(room.currentQuestionId);
+  const isTeamMode = room.competitionStyle === "team";
   const scorablePlayers = players.filter((player) => !player.isHost);
+  const competitors: Competitor[] = isTeamMode
+    ? teams.map(teamToCompetitor)
+    : scorablePlayers.map(playerToCompetitor);
 
   return (
     <div className="stage">
       {room.phase === "lobby" && (
         <>
           <h1>Room {roomCode}</h1>
-          <p className="stage-status">Waiting for the host to start...</p>
+          {isTeamMode ? (
+            <p className="stage-status">
+              {teams.length === 0
+                ? "Waiting for teams to form..."
+                : `${teams.length} team${teams.length === 1 ? "" : "s"} joined`}
+            </p>
+          ) : (
+            <p className="stage-status">Waiting for the host to start...</p>
+          )}
         </>
       )}
 
@@ -74,30 +89,25 @@ function StagePage() {
             The answer was{" "}
             {question.options.find((option) => option.id === question.correctOptionId)?.text}
           </h1>
-          <StageAggregate answers={answers} question={question} />
+          <StageAggregate answers={isTeamMode ? teamAnswers : answers} question={question} />
         </>
       )}
 
       {(room.phase === "leaderboard" || room.phase === "ended") && (
         <>
           <p className="stage-eyebrow">{room.phase === "ended" ? "Final Standings" : "Standings"}</p>
-          {room.phase === "ended" && <StageWinner players={scorablePlayers} winnerClientIds={room.winnerClientIds} />}
-          <ol className="stage-leaderboard">
-            {sortLeaderboard(scorablePlayers).map((player, index) => (
-              <li key={player.clientId}>
-                <span>{index + 1}</span>
-                <span className="stage-leaderboard-name">{player.displayName}</span>
-                <span>{player.score}</span>
-              </li>
-            ))}
-          </ol>
+          {room.phase === "ended" && <StageWinner competitors={competitors} winnerIds={room.winnerIds} />}
+          <CompetitorLeaderboard
+            competitors={competitors}
+            emptyMessage={isTeamMode ? "No teams to show yet." : "No players to show yet."}
+          />
         </>
       )}
     </div>
   );
 }
 
-function StageAggregate({ answers, question }: { answers: AnswerRecord[]; question: Question }) {
+function StageAggregate({ answers, question }: { answers: AnswerLike[]; question: Question }) {
   const aggregate = computeAggregateReveal(answers, question);
   return (
     <p className="stage-status">
@@ -108,13 +118,13 @@ function StageAggregate({ answers, question }: { answers: AnswerRecord[]; questi
   );
 }
 
-function StageWinner({ players, winnerClientIds }: { players: PlayerRecord[]; winnerClientIds: string[] }) {
-  const winners = players.filter((player) => winnerClientIds.includes(player.clientId));
+function StageWinner({ competitors, winnerIds }: { competitors: Competitor[]; winnerIds: string[] }) {
+  const winners = computeWinners(competitors).filter((competitor) => winnerIds.includes(competitor.id));
   if (winners.length === 0) return null;
 
   return (
     <h1 className="stage-winner">
-      🎉 {winners.map((player) => player.displayName).join(" & ")}{" "}
+      🎉 {winners.map((competitor) => competitor.displayName).join(" & ")}{" "}
       {winners.length === 1 ? "wins!" : "win!"}
     </h1>
   );

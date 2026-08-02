@@ -64,30 +64,6 @@
   flex-shrink: 0;
 }
 
-.stage-leaderboard {
-  width: 100%;
-  max-width: 500px;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.stage-leaderboard li {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: 0.75rem 1.25rem;
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  font-size: 1.1rem;
-}
-
-.stage-leaderboard-name {
-  flex: 1;
-  text-align: left;
-}
-
 .stage-winner {
   font-size: clamp(1.75rem, 5vw, 2.5rem);
 }
