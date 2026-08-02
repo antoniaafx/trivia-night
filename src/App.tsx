@@ -5,7 +5,7 @@ import HostSetupPage from "./pages/HostSetupPage";
 import HostControlPanelPage from "./pages/HostControlPanelPage";
 import JoinPage from "./pages/JoinPage";
 import PlayerRoomPage from "./pages/PlayerRoomPage";
-import GamePresentationPage from "./pages/GamePresentationPage";
+import StagePage from "./pages/StagePage";
 import NotFoundPage from "./pages/NotFoundPage";
 
 function App() {
@@ -18,7 +18,7 @@ function App() {
           <Route path="/host/:roomCode" element={<HostControlPanelPage />} />
           <Route path="/join" element={<JoinPage />} />
           <Route path="/play/:roomCode" element={<PlayerRoomPage />} />
-          <Route path="/game/:roomCode" element={<GamePresentationPage />} />
+          <Route path="/stage/:roomCode" element={<StagePage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>

@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { RealtimeChannel } from "@supabase/supabase-js";
+import { useEffect, useState } from "react";
 import { isSupabaseConfigured, supabase } from "../services/supabaseClient";
-import type { RoomPhase, RoomPlayer } from "../types/room";
+import type { RoomPlayer } from "../types/room";
 
 interface UseRoomChannelOptions {
   roomCode: string;
@@ -16,49 +15,36 @@ export type ConnectionStatus = "unconfigured" | "connecting" | "connected" | "di
 
 interface UseRoomChannelResult {
   players: RoomPlayer[];
-  phase: RoomPhase;
   connectionStatus: ConnectionStatus;
-  broadcastPhaseChange: (phase: RoomPhase) => void;
 }
 
 /**
- * Wraps a Supabase Realtime channel scoped to one room code.
+ * Presence only - "who is connected to this room right now", for the
+ * live lobby list. This is exactly what it was in Milestone 1.
  *
- * Deliberately has no database table backing it yet. A room's entire
- * live state - who's connected, and the current phase - is carried by
- * the realtime channel itself (Presence for participants, Broadcast for
- * host-triggered events). This is enough for the lobby and works today
- * with nothing more than a Supabase project's URL/anon key - no schema,
- * no migration.
- *
- * TODO: once game state needs to survive every participant disconnecting
- * (current question, scores, room settings), introduce a `rooms` table
- * and read/write through it instead of relying on presence alone.
+ * Game phase, answers, and scores no longer live here - Broadcast
+ * messages are never replayed to a client that reconnects or refreshes,
+ * so they can't be the source of truth for anything that must survive a
+ * refresh. That authoritative state now lives in Postgres; see
+ * useGameRoom and services/gameRoomRepository.ts.
  */
 export function useRoomChannel({ roomCode, self }: UseRoomChannelOptions): UseRoomChannelResult {
   const [players, setPlayers] = useState<RoomPlayer[]>([]);
-  const [phase, setPhase] = useState<RoomPhase>("lobby");
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
     isSupabaseConfigured ? "connecting" : "unconfigured",
   );
-  const channelRef = useRef<RealtimeChannel | null>(null);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
-      // Never attempt to open a channel against placeholder credentials -
-      // that would eventually time out and look identical to a real
-      // connection failure, when the actual problem is simpler and fully
-      // fixable by the developer right now.
       setConnectionStatus("unconfigured");
       return;
     }
 
     setConnectionStatus("connecting");
 
-    const channel = supabase.channel(`room:${roomCode}`, {
+    const channel = supabase.channel(`presence:${roomCode}`, {
       config: { presence: { key: self.clientId } },
     });
-    channelRef.current = channel;
 
     channel.on("presence", { event: "sync" }, () => {
       const state = channel.presenceState<RoomPlayer>();
@@ -69,10 +55,6 @@ export function useRoomChannel({ roomCode, self }: UseRoomChannelOptions): UseRo
           return a.joinedAt - b.joinedAt;
         });
       setPlayers(connected);
-    });
-
-    channel.on("broadcast", { event: "phase_change" }, ({ payload }) => {
-      setPhase(payload.phase as RoomPhase);
     });
 
     channel.subscribe((status) => {
@@ -86,21 +68,11 @@ export function useRoomChannel({ roomCode, self }: UseRoomChannelOptions): UseRo
 
     return () => {
       void channel.unsubscribe();
-      channelRef.current = null;
     };
     // self is a small, effectively-constant identity object per mount;
     // re-subscribing when its fields change is correct, not accidental.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode, self.clientId, self.displayName, self.isHost]);
 
-  const broadcastPhaseChange = useCallback((newPhase: RoomPhase) => {
-    channelRef.current?.send({
-      type: "broadcast",
-      event: "phase_change",
-      payload: { phase: newPhase },
-    });
-    setPhase(newPhase);
-  }, []);
-
-  return { players, phase, connectionStatus, broadcastPhaseChange };
+  return { players, connectionStatus };
 }

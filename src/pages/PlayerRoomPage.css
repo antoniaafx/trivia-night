@@ -6,6 +6,7 @@
   gap: var(--space-md);
   padding: var(--space-lg) var(--space-md);
   text-align: center;
+  width: 100%;
 }
 
 .player-room-status {
@@ -21,4 +22,90 @@
 .player-room-roster {
   width: 100%;
   max-width: 360px;
+}
+
+.player-question,
+.player-reveal,
+.player-leaderboard,
+.player-ended {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.player-options {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Large tap targets - this is held and tapped on a phone, often
+   one-handed and mid-conversation. */
+.player-option {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 56px;
+  padding: 0.9rem 1.1rem;
+  border-radius: var(--radius-md);
+  border: 2px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 1.05rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.player-option:focus-visible {
+  outline: 3px solid var(--color-electric-blue);
+  outline-offset: 2px;
+}
+
+.player-option-selected {
+  border-color: var(--color-teal);
+  background: var(--color-surface-strong);
+}
+
+.player-option-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  font-family: var(--font-heading);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.player-leaderboard-list {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.player-leaderboard-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0.6rem 1rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.player-leaderboard-name {
+  flex: 1;
+  text-align: left;
+}
+
+.player-leaderboard-list li.player-leaderboard-self {
+  border-color: var(--color-teal);
 }
