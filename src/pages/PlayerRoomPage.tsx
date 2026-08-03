@@ -437,7 +437,7 @@ function QuestionAnswering({
       ) : (
         <>
           <div className="player-options" role="radiogroup" aria-label="Answer choices">
-            {question.options.map((option) => {
+            {question.options.map((option, index) => {
               const selected = option.id === selectedOptionId;
               return (
                 <button
@@ -448,7 +448,7 @@ function QuestionAnswering({
                   className={`player-option${selected ? " player-option-selected" : ""}`}
                   onClick={() => onSelect(option.id)}
                 >
-                  <span className="player-option-letter">{option.id}</span>
+                  <span className="player-option-letter">{String.fromCharCode(65 + index)}</span>
                   {option.text}
                 </button>
               );

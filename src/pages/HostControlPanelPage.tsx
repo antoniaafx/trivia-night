@@ -581,9 +581,9 @@ function QuestionPhase({
 
       {question.answerMethod === "multiple_choice" ? (
         <ul className="host-options">
-          {question.options.map((option) => (
+          {question.options.map((option, index) => (
             <li key={option.id} className={option.id === question.correctOptionId ? "host-options-correct" : ""}>
-              {option.id}. {option.text}
+              {String.fromCharCode(65 + index)}. {option.text}
               {option.id === question.correctOptionId && " (correct)"}
             </li>
           ))}

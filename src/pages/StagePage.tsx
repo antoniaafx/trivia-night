@@ -88,9 +88,9 @@ function StagePage() {
           <h1>{question.prompt}</h1>
           {question.answerMethod === "multiple_choice" && (
             <div className="stage-options">
-              {question.options.map((option) => (
+              {question.options.map((option, index) => (
                 <div key={option.id} className="stage-option">
-                  <span className="stage-option-letter">{option.id}</span>
+                  <span className="stage-option-letter">{String.fromCharCode(65 + index)}</span>
                   {option.text}
                 </div>
               ))}

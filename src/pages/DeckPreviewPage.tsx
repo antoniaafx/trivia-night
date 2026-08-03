@@ -78,12 +78,12 @@ function DeckPreviewPage() {
 
       {question.answerMethod === "multiple_choice" ? (
         <div className="stage-options">
-          {question.options.map((option) => (
+          {question.options.map((option, index) => (
             <div
               key={option.id}
               className={`stage-option${option.id === question.correctOptionId ? " deck-preview-correct" : ""}`}
             >
-              <span className="stage-option-letter">{option.id}</span>
+              <span className="stage-option-letter">{String.fromCharCode(65 + index)}</span>
               {option.text}
               {option.id === question.correctOptionId && " (correct)"}
             </div>
