@@ -28,7 +28,9 @@ function GameSetupSummary({ deckSnapshot }: GameSetupSummaryProps) {
     if (deckSnapshot.selectedDeckIds.length === 0) {
       return (
         <div className="game-setup-summary">
-          <p className="game-setup-summary-status">The host is still choosing which Decks to play.</p>
+          <p className="game-setup-summary-status" role="status">
+            The Host is choosing tonight&rsquo;s trivia.
+          </p>
         </div>
       );
     }
@@ -37,7 +39,9 @@ function GameSetupSummary({ deckSnapshot }: GameSetupSummaryProps) {
     if (planSummary.questionCount === 0) {
       return (
         <div className="game-setup-summary">
-          <p className="game-setup-summary-status">The host is still preparing Questions for the selected Decks.</p>
+          <p className="game-setup-summary-status" role="status">
+            The Host is still setting up the game.
+          </p>
         </div>
       );
     }
@@ -56,6 +60,9 @@ function GameSetupSummary({ deckSnapshot }: GameSetupSummaryProps) {
           {planSummary.deckCount} Deck{planSummary.deckCount === 1 ? "" : "s"} · {planSummary.questionCount} Question
           {planSummary.questionCount === 1 ? "" : "s"} · {formatApproximateMinutes(planSummary.estimatedDurationSeconds)}
         </p>
+        <p className="game-setup-summary-status" role="status">
+          Everything is ready. Waiting for the Host to start.
+        </p>
       </div>
     );
   }
@@ -63,7 +70,9 @@ function GameSetupSummary({ deckSnapshot }: GameSetupSummaryProps) {
   // kind "game_plan" - a locked rematch, replaying the exact same lineup.
   return (
     <div className="game-setup-summary">
-      <p className="game-setup-summary-status">Playing the same lineup as last time.</p>
+      <p className="game-setup-summary-status" role="status">
+        Playing the same lineup as last time.
+      </p>
       <ul className="game-setup-summary-list">
         {deckSnapshot.sections.map((section, index) => (
           <li key={section.deckId}>

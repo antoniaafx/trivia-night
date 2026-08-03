@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Navigate, useParams } from "react-router-dom";
+import { Link, Navigate, useParams } from "react-router-dom";
 import { useClientId } from "../hooks/useClientId";
 import { useRoomChannel } from "../hooks/useRoomChannel";
 import { useGameRoom } from "../hooks/useGameRoom";
 import { getQuestionById, type Question, type TypedAnswerQuestion } from "../data/questions";
+import { findSectionForQuestion } from "../utils/gamePlan";
 import { computeWinners, validateTeamName } from "../utils/scoring";
 import PlayerList from "../components/PlayerList";
 import LoadingScreen from "../components/LoadingScreen";
@@ -121,8 +122,8 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
     if (previous !== null && previous !== room.competitionStyle) {
       setStyleChangeNotice(
         room.competitionStyle === "team"
-          ? "The host switched to Team Play — choose a team to keep playing."
-          : "The host switched to Solo Play.",
+          ? "The Host changed the game to Team Play. Choose a Team before the game begins."
+          : "The Host changed the game to Solo Play. You'll compete individually.",
       );
       previousStyleRef.current = room.competitionStyle;
       const timer = setTimeout(() => setStyleChangeNotice(null), 6000);
@@ -138,7 +139,9 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
   if (connectionStatus === "unconfigured" || presenceStatus === "unconfigured") {
     return (
       <div className="player-room">
-        <p className="player-room-status">{describeStatus("unconfigured")}</p>
+        <p className="player-room-status" role="status">
+          {describeStatus("unconfigured")}
+        </p>
       </div>
     );
   }
@@ -150,8 +153,13 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
   if (roomNotFound || !room) {
     return (
       <div className="player-room">
-        <h1>Room not found</h1>
-        <p className="player-room-status">Double check the room code and try again.</p>
+        <h1>We couldn&rsquo;t find that room</h1>
+        <p className="player-room-status">
+          Double-check the room code with your host — codes are case-insensitive, but every letter counts.
+        </p>
+        <Link to="/join" className="btn btn-primary">
+          Try a different code
+        </Link>
       </div>
     );
   }
@@ -159,14 +167,18 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
   if (isLateJoin) {
     return (
       <div className="player-room">
-        <p className="player-room-status">{describeStatus(connectionStatus)}</p>
-        <h1>The game has already started.</h1>
-        <p>You&rsquo;ll join when the next game begins.</p>
+        <p className="player-room-status" role="status">
+          {describeStatus(connectionStatus)}
+        </p>
+        <h1>This game is already underway.</h1>
+        <p>No need to refresh — you&rsquo;ll be dropped right in as soon as the host starts the next one.</p>
       </div>
     );
   }
 
   const question = getQuestionById(questionList, room.currentQuestionId);
+  const sectionInfo =
+    room.deckSnapshot?.kind === "game_plan" ? findSectionForQuestion(room.deckSnapshot, room.currentQuestionId) : null;
   const isTeamMode = room.competitionStyle === "team";
   const scorablePlayers = players.filter((player) => !player.isHost);
   const competitors: Competitor[] = isTeamMode
@@ -178,7 +190,7 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
 
   return (
     <div className="player-room">
-      <p className="player-room-status">
+      <p className="player-room-status" role="status">
         {connectionStatus === "connected" ? `You're in! Room ${roomCode}` : describeStatus(connectionStatus)}
       </p>
 
@@ -230,6 +242,7 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
         (question.answerMethod === "multiple_choice" ? (
           <QuestionAnswering
             question={question}
+            sectionInfo={sectionInfo}
             isTeamMode={isTeamMode}
             hasTeam={hasTeam}
             selectedOptionId={isTeamMode ? myTeamAnswerOptionId : myAnswerOptionId}
@@ -238,6 +251,7 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
         ) : (
           <TypedAnswerQuestionPhase
             question={question}
+            sectionInfo={sectionInfo}
             isTeamMode={isTeamMode}
             hasTeam={hasTeam}
             submittedText={isTeamMode ? myTeamTypedAnswerText : myTypedAnswerText}
@@ -257,6 +271,9 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
         <div className="player-leaderboard">
           <h1>Standings</h1>
           <CompetitorLeaderboard competitors={competitors} highlightId={myCompetitorId} />
+          <p className="player-room-status" role="status">
+            Waiting for the host to continue…
+          </p>
         </div>
       )}
 
@@ -378,6 +395,7 @@ function TeamSelector({
           {error}
         </p>
       )}
+      {teams.length === 0 && <p className="player-room-status">No teams yet — be the first to start one!</p>}
       {teams.length > 0 && (
         <div className="player-team-list">
           <ul>
@@ -414,14 +432,31 @@ function TeamSelector({
   );
 }
 
+interface PlayerSectionInfo {
+  section: { deckTitle: string };
+  sectionNumber: number;
+  totalSections: number;
+}
+
+function SectionEyebrow({ sectionInfo }: { sectionInfo: PlayerSectionInfo | null }) {
+  if (!sectionInfo) return null;
+  return (
+    <p className="player-room-status">
+      {sectionInfo.section.deckTitle} — Deck {sectionInfo.sectionNumber} of {sectionInfo.totalSections}
+    </p>
+  );
+}
+
 function QuestionAnswering({
   question,
+  sectionInfo,
   isTeamMode,
   hasTeam,
   selectedOptionId,
   onSelect,
 }: {
   question: Question;
+  sectionInfo: PlayerSectionInfo | null;
   isTeamMode: boolean;
   hasTeam: boolean;
   selectedOptionId: string | null;
@@ -431,6 +466,7 @@ function QuestionAnswering({
 
   return (
     <div className="player-question">
+      <SectionEyebrow sectionInfo={sectionInfo} />
       <h1>{question.prompt}</h1>
       {isTeamMode && !hasTeam ? (
         <p className="player-room-warning">You didn&rsquo;t join a team before the game started.</p>
@@ -473,12 +509,14 @@ function QuestionAnswering({
 
 function TypedAnswerQuestionPhase({
   question,
+  sectionInfo,
   isTeamMode,
   hasTeam,
   submittedText,
   onSubmit,
 }: {
   question: TypedAnswerQuestion;
+  sectionInfo: PlayerSectionInfo | null;
   isTeamMode: boolean;
   hasTeam: boolean;
   submittedText: string | null;
@@ -486,6 +524,7 @@ function TypedAnswerQuestionPhase({
 }) {
   return (
     <div className="player-question">
+      <SectionEyebrow sectionInfo={sectionInfo} />
       <h1>{question.prompt}</h1>
       {isTeamMode && !hasTeam ? (
         <p className="player-room-warning">You didn&rsquo;t join a team before the game started.</p>
@@ -604,6 +643,9 @@ function RevealResult({
     <div className="player-reveal">
       <h1>{heading}</h1>
       <p>The answer was {correctAnswerText}.</p>
+      <p className="player-room-status" role="status">
+        Waiting for the host to continue…
+      </p>
     </div>
   );
 }

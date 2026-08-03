@@ -85,6 +85,8 @@ function HostControlPanelPage() {
   } = useGameRoom({ roomCode, self });
 
   const [startError, setStartError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [busyReviewId, setBusyReviewId] = useState<string | null>(null);
 
   // Every Deck the Host owns (in this browser), each with its full
   // Question list - the picker/readiness data GameSetupPanel needs.
@@ -161,10 +163,16 @@ function HostControlPanelPage() {
   }
 
   async function handleStart() {
+    if (starting) return;
     setStartError(null);
-    const result = await startGame();
-    if (!result.ok) {
-      setStartError(result.error ?? "Couldn't start the game. Try again.");
+    setStarting(true);
+    try {
+      const result = await startGame();
+      if (!result.ok) {
+        setStartError(result.error ?? "Couldn't start the game. Try again.");
+      }
+    } finally {
+      setStarting(false);
     }
   }
 
@@ -176,7 +184,9 @@ function HostControlPanelPage() {
   if (connectionStatus === "unconfigured" || presenceStatus === "unconfigured") {
     return (
       <div className="host-lobby">
-        <p className="host-lobby-status">{describeStatus("unconfigured")}</p>
+        <p className="host-lobby-status" role="status">
+          {describeStatus("unconfigured")}
+        </p>
       </div>
     );
   }
@@ -188,7 +198,8 @@ function HostControlPanelPage() {
   if (roomNotFound || !room) {
     return (
       <div className="host-lobby">
-        <p className="host-lobby-status">Something went wrong creating this room.</p>
+        <h1>We couldn&rsquo;t create this room</h1>
+        <p className="host-lobby-status">Refresh the page to try again.</p>
       </div>
     );
   }
@@ -227,22 +238,35 @@ function HostControlPanelPage() {
 
   const nextQuestionId = getNextQuestionId(questionList, room.currentQuestionId);
 
-  function handleReview(id: string, decision: "correct" | "incorrect") {
-    if (isTeamMode) {
-      void reviewTeamAnswer(id, decision);
-    } else {
-      void reviewAnswer(id, decision);
+  async function handleReview(id: string, decision: "correct" | "incorrect") {
+    setBusyReviewId(id);
+    try {
+      if (isTeamMode) {
+        await reviewTeamAnswer(id, decision);
+      } else {
+        await reviewAnswer(id, decision);
+      }
+    } finally {
+      setBusyReviewId(null);
     }
   }
 
   return (
     <div className="host-lobby">
       <div className="host-lobby-invite card">
-        <QRCodeSVG value={joinUrl} size={180} bgColor="transparent" fgColor="#f5f3ff" />
+        <QRCodeSVG
+          value={joinUrl}
+          size={180}
+          bgColor="transparent"
+          fgColor="#f5f3ff"
+          title="Scan with a phone camera to join this game"
+        />
         <p className="host-lobby-code">
           Room code: <strong>{roomCode}</strong>
         </p>
-        <p className="host-lobby-status">{describeStatus(connectionStatus)}</p>
+        <p className="host-lobby-status" role="status">
+          {describeStatus(connectionStatus)}
+        </p>
         <a href={stageUrl} target="_blank" rel="noreferrer" className="btn btn-ghost">
           Open Stage
         </a>
@@ -257,6 +281,7 @@ function HostControlPanelPage() {
           teams={teams}
           teamPlayers={scorablePlayers}
           onStart={() => void handleStart()}
+          starting={starting}
           startError={startError}
           teamReadinessProblem={teamReadinessProblem}
           deckSnapshot={room.deckSnapshot}
@@ -286,7 +311,8 @@ function HostControlPanelPage() {
           question={question}
           answers={gradedAnswers}
           pendingItems={pendingItems}
-          onReview={handleReview}
+          busyReviewId={busyReviewId}
+          onReview={(id, decision) => void handleReview(id, decision)}
           onContinue={() => void (nextQuestionId ? advanceQuestion() : showLeaderboard())}
           continueLabel={nextQuestionId ? "Continue to Next Question" : "Show Leaderboard"}
         />
@@ -297,8 +323,9 @@ function HostControlPanelPage() {
           competitors={competitors}
           unitLabel={unitLabel}
           pendingItems={pendingItems}
+          busyReviewId={busyReviewId}
           question={question}
-          onReview={handleReview}
+          onReview={(id, decision) => void handleReview(id, decision)}
           onShowWinner={() => void showWinner()}
         />
       )}
@@ -403,6 +430,7 @@ function LobbyPhase({
   teams,
   teamPlayers,
   onStart,
+  starting,
   startError,
   teamReadinessProblem,
   deckSnapshot,
@@ -421,6 +449,7 @@ function LobbyPhase({
   teams: TeamRecord[];
   teamPlayers: PlayerRecord[];
   onStart: () => void;
+  starting: boolean;
   startError: string | null;
   teamReadinessProblem: string | null;
   deckSnapshot: RoomDeckSnapshot | null;
@@ -438,7 +467,9 @@ function LobbyPhase({
 
   const deckSelectionBlocked = isLiveSetup && deckSnapshot.selectedDeckIds.length === 0;
   const startBlockedReason =
-    teamReadinessProblem ?? (deckSelectionBlocked ? "Choose at least one Deck before starting." : null);
+    setupStatus === "saving"
+      ? "Saving the latest setup…"
+      : (teamReadinessProblem ?? (deckSelectionBlocked ? "Choose at least one Deck before starting." : null));
 
   const startHint =
     competitionStyle === "team"
@@ -487,7 +518,13 @@ function LobbyPhase({
           {availableDecks === null ? (
             <p className="host-lobby-status">Loading your Decks...</p>
           ) : availableDecks.length === 0 ? (
-            <p className="host-lobby-status">You haven&rsquo;t created any Decks yet. Manage Decks from My Decks.</p>
+            <p className="host-lobby-status">
+              You haven&rsquo;t created any Decks yet.{" "}
+              <a href="/decks" target="_blank" rel="noreferrer">
+                Create one in My Decks
+              </a>{" "}
+              — this Lobby will stay open while you do.
+            </p>
           ) : (
             <GameSetupPanel
               availableDecks={availableDecks}
@@ -501,6 +538,9 @@ function LobbyPhase({
       )}
 
       {startHint && <p className="host-answered-count">{startHint}</p>}
+      {isLiveSetup && !startBlockedReason && (
+        <p className="host-lobby-status">Starting locks this setup for everyone in the room.</p>
+      )}
       {startBlockedReason && (
         <p className="host-style-note" role="alert">
           {startBlockedReason}
@@ -511,8 +551,13 @@ function LobbyPhase({
           {startError}
         </p>
       )}
-      <button type="button" className="btn btn-primary" onClick={onStart} disabled={startBlockedReason !== null}>
-        {isRematch ? "Start Rematch" : "Start Game"}
+      <button
+        type="button"
+        className="btn btn-primary"
+        onClick={onStart}
+        disabled={startBlockedReason !== null || starting}
+      >
+        {starting ? "Starting…" : isRematch ? "Start Rematch" : "Start Game"}
       </button>
     </>
   );
@@ -613,10 +658,12 @@ function QuestionPhase({
 function TypedAnswerReviewQueue({
   items,
   question,
+  busyItemId,
   onReview,
 }: {
   items: PendingReviewItem[];
   question: TypedAnswerQuestion;
+  busyItemId: string | null;
   onReview: (id: string, decision: "correct" | "incorrect") => void;
 }) {
   if (items.length === 0) return null;
@@ -627,23 +674,36 @@ function TypedAnswerReviewQueue({
         Possible typo{items.length === 1 ? "" : "s"} - {items.length} to review
       </h3>
       <ul>
-        {items.map((item) => (
-          <li key={item.id} className="host-review-item">
-            <p>
-              <strong>{item.competitorName}</strong> answered:
-            </p>
-            <p className="host-review-submitted">&ldquo;{item.submittedText}&rdquo;</p>
-            <p className="host-lobby-status">Correct answer: &ldquo;{question.correctAnswer}&rdquo;</p>
-            <div className="host-review-actions">
-              <button type="button" className="btn btn-primary" onClick={() => onReview(item.id, "correct")}>
-                Accept
-              </button>
-              <button type="button" className="btn btn-ghost" onClick={() => onReview(item.id, "incorrect")}>
-                Reject
-              </button>
-            </div>
-          </li>
-        ))}
+        {items.map((item) => {
+          const busy = busyItemId === item.id;
+          return (
+            <li key={item.id} className="host-review-item">
+              <p>
+                <strong>{item.competitorName}</strong> answered:
+              </p>
+              <p className="host-review-submitted">&ldquo;{item.submittedText}&rdquo;</p>
+              <p className="host-lobby-status">Correct answer: &ldquo;{question.correctAnswer}&rdquo;</p>
+              <div className="host-review-actions">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => onReview(item.id, "correct")}
+                  disabled={busy}
+                >
+                  Accept
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => onReview(item.id, "incorrect")}
+                  disabled={busy}
+                >
+                  Reject
+                </button>
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
@@ -653,6 +713,7 @@ function RevealPhase({
   question,
   answers,
   pendingItems,
+  busyReviewId,
   onReview,
   onContinue,
   continueLabel,
@@ -660,6 +721,7 @@ function RevealPhase({
   question: Question;
   answers: AnswerRecord[] | TeamAnswerRecord[];
   pendingItems: PendingReviewItem[];
+  busyReviewId: string | null;
   onReview: (id: string, decision: "correct" | "incorrect") => void;
   onContinue: () => void;
   continueLabel: string;
@@ -674,20 +736,24 @@ function RevealPhase({
     <div className="host-phase card">
       <p className="host-phase-label">Reveal</p>
       <h2>The answer was {correctAnswerText}</h2>
-      <p className="host-aggregate">
-        {aggregate.correctCount} of {aggregate.correctCount + aggregate.incorrectCount} correct (
-        {aggregate.percentageCorrect}%)
-        {aggregate.pendingCount > 0 &&
-          ` — ${aggregate.pendingCount} still being checked`}
-      </p>
+      {aggregate.answeredCount === 0 ? (
+        <p className="host-aggregate">Nobody answered this one.</p>
+      ) : (
+        <p className="host-aggregate">
+          {aggregate.correctCount} of {aggregate.correctCount + aggregate.incorrectCount} correct (
+          {aggregate.percentageCorrect}%)
+          {aggregate.pendingCount > 0 &&
+            ` — ${aggregate.pendingCount} still being checked`}
+        </p>
+      )}
 
       {question.answerMethod === "typed_answer" && pendingItems.length > 0 && (
-        <TypedAnswerReviewQueue items={pendingItems} question={question} onReview={onReview} />
+        <TypedAnswerReviewQueue items={pendingItems} question={question} busyItemId={busyReviewId} onReview={onReview} />
       )}
 
       {pendingItems.length > 0 ? (
         <button type="button" className="btn btn-ghost" onClick={onContinue}>
-          Continue With Provisional Scores
+          Continue Anyway — Scores May Still Change
         </button>
       ) : (
         <button type="button" className="btn btn-primary" onClick={onContinue}>
@@ -702,6 +768,7 @@ function LeaderboardPhase({
   competitors,
   unitLabel,
   pendingItems,
+  busyReviewId,
   question,
   onReview,
   onShowWinner,
@@ -709,6 +776,7 @@ function LeaderboardPhase({
   competitors: Competitor[];
   unitLabel: string;
   pendingItems: PendingReviewItem[];
+  busyReviewId: string | null;
   question: Question | null;
   onReview: (id: string, decision: "correct" | "incorrect") => void;
   onShowWinner: () => void;
@@ -724,7 +792,7 @@ function LeaderboardPhase({
             {pendingItems.length} answer{pendingItems.length === 1 ? "" : "s"} still need review before the winner
             can be shown.
           </p>
-          <TypedAnswerReviewQueue items={pendingItems} question={question} onReview={onReview} />
+          <TypedAnswerReviewQueue items={pendingItems} question={question} busyItemId={busyReviewId} onReview={onReview} />
         </>
       ) : (
         <button type="button" className="btn btn-primary" onClick={onShowWinner}>

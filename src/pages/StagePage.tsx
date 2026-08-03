@@ -1,4 +1,4 @@
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useGameRoom } from "../hooks/useGameRoom";
 import { getQuestionById, QUESTIONS } from "../data/questions";
 import { computeAggregateReveal, computeWinners } from "../utils/scoring";
@@ -33,7 +33,9 @@ function StagePage() {
   if (connectionStatus === "unconfigured") {
     return (
       <div className="stage">
-        <p className="stage-status">Not connected — see the setup notice above</p>
+        <p className="stage-status" role="status">
+          Not connected — see the setup notice above
+        </p>
       </div>
     );
   }
@@ -45,8 +47,11 @@ function StagePage() {
   if (roomNotFound || !room) {
     return (
       <div className="stage">
-        <h1>Room not found</h1>
-        <p className="stage-status">Check the room code and open this page again.</p>
+        <h1>We couldn&rsquo;t find that room</h1>
+        <p className="stage-status">Double-check the room code with your host.</p>
+        <Link to="/" className="btn btn-ghost">
+          Back to home
+        </Link>
       </div>
     );
   }
@@ -66,13 +71,15 @@ function StagePage() {
         <>
           <h1>Room {roomCode}</h1>
           {isTeamMode ? (
-            <p className="stage-status">
+            <p className="stage-status" role="status">
               {teams.length === 0
                 ? "Waiting for teams to form..."
                 : `${teams.length} team${teams.length === 1 ? "" : "s"} joined`}
             </p>
           ) : (
-            <p className="stage-status">Waiting for the host to start...</p>
+            <p className="stage-status" role="status">
+              Waiting for the host to start...
+            </p>
           )}
           <GameSetupSummary deckSnapshot={room.deckSnapshot} />
         </>

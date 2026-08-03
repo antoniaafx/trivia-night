@@ -31,6 +31,10 @@ function LandingPage() {
             Join a Game
           </Link>
         </div>
+
+        <p className="landing-reassurance">
+          Free to play. Players just need a phone and a room code — no signup, ever.
+        </p>
       </motion.div>
     </div>
   );

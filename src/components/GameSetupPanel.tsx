@@ -122,7 +122,12 @@ function GameSetupPanel({
                     >
                       Move Down
                     </button>
-                    <button type="button" className="btn btn-ghost" onClick={() => handleRemove(deck.id)}>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => handleRemove(deck.id)}
+                      aria-label={`Remove ${deck.title}`}
+                    >
                       Remove
                     </button>
                   </div>
@@ -148,6 +153,7 @@ function GameSetupPanel({
                   className="btn btn-ghost"
                   onClick={() => handleSelect(deck.id)}
                   disabled={selectedDeckIds.length >= MAX_DECKS_PER_GAME}
+                  aria-label={`Add ${deck.title}`}
                 >
                   Add
                 </button>

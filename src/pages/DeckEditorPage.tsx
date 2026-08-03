@@ -276,6 +276,12 @@ function DeckEditorPage() {
         </p>
       )}
 
+      {ordered.length === 0 && (
+        <p className="deck-editor-empty">
+          No Questions yet — add your first one below to get started.
+        </p>
+      )}
+
       <ul className="deck-editor-questions">
         {ordered.map((question, index) => (
           <QuestionCard
