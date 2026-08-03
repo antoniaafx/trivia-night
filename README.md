@@ -10,6 +10,9 @@ Product direction (vision, personas, flows, decisions) is documented in
 [`docs/00-PRODUCT-BIBLE.md`](docs/00-PRODUCT-BIBLE.md) — start there before
 making UX or feature decisions.
 
+Deploying this app to a public testing URL? See
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
 ## Tech stack
 
 - [Vite](https://vitejs.dev/) — build tool and dev server

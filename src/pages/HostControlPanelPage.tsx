@@ -10,6 +10,7 @@ import { getNextQuestionId, getQuestionById, type Question, type TypedAnswerQues
 import { computeAggregateReveal, computeWinners } from "../utils/scoring";
 import { findSectionForQuestion, type RoomDeckSnapshot } from "../utils/gamePlan";
 import { formatApproximateMinutes } from "../utils/formatDuration";
+import { buildJoinUrl, buildStageUrl } from "../utils/roomLinks";
 import { fetchDecksWithQuestions } from "../services/deckRepository";
 import PlayerList from "../components/PlayerList";
 import LoadingScreen from "../components/LoadingScreen";
@@ -176,8 +177,8 @@ function HostControlPanelPage() {
     }
   }
 
-  const joinUrl = `${window.location.origin}/join?room=${roomCode}`;
-  const stageUrl = `${window.location.origin}/stage/${roomCode}`;
+  const joinUrl = buildJoinUrl(window.location.origin, roomCode);
+  const stageUrl = buildStageUrl(window.location.origin, roomCode);
   const joinedPlayers = presencePlayers.filter((player) => !player.isHost);
   const scorablePlayers = players.filter((player) => !player.isHost);
 
