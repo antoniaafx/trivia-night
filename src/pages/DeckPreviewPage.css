@@ -1,0 +1,31 @@
+.deck-preview-message {
+  width: 100%;
+  max-width: 480px;
+  margin: var(--space-lg) auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  text-align: center;
+}
+
+.stage-option.deck-preview-correct {
+  border-color: var(--color-teal);
+  color: var(--color-teal);
+  font-weight: 600;
+}
+
+.deck-preview-typed {
+  width: 100%;
+  max-width: 480px;
+}
+
+.deck-preview-nav {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.deck-preview-return {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}

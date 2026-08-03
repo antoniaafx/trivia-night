@@ -1,8 +1,10 @@
+import type { RoomDeckSnapshot } from "../utils/gamePlan";
+
 /**
  * Authoritative game-state types, backed by Postgres (see
- * supabase/migrations/0001_game_state.sql and 0002_team_mode.sql), not
- * by Presence/Broadcast. Presence still tracks "who's online right now"
- * for the lobby; these types describe the durable state that must
+ * supabase/migrations/0001_game_state.sql through 0004_creator_mvp.sql),
+ * not by Presence/Broadcast. Presence still tracks "who's online right
+ * now" for the lobby; these types describe the durable state that must
  * survive a refresh.
  */
 export type RoomPhase = "lobby" | "question" | "reveal" | "leaderboard" | "ended";
@@ -38,6 +40,14 @@ export interface RoomRecord {
   gameInstanceId: string;
   /** Holds team ids in Team Mode, player client ids in Solo Mode. */
   winnerIds: string[];
+  /**
+   * null = Quick Play (built-in sample Questions). Before Start Game, a
+   * `kind: "setup"` object (the Host's Deck/duration choices, so a Lobby
+   * refresh never loses them). From Start Game onward, a frozen
+   * `kind: "game_plan"` object - the one thing gameplay ever reads
+   * Questions from once a game has actually begun. See utils/gamePlan.ts.
+   */
+  deckSnapshot: RoomDeckSnapshot | null;
   createdAt: string;
   updatedAt: string;
 }

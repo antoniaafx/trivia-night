@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { FIRST_QUESTION_ID, getNextQuestionId, getQuestionById } from "../data/questions";
+import { FIRST_QUESTION_ID, getNextQuestionId, getQuestionById, QUESTIONS, type Question } from "../data/questions";
 import { computeWinners, isEventForCurrentInstance, isEventForCurrentQuestion } from "../utils/scoring";
+import { computeDeckReadiness } from "../utils/deckValidation";
+import { computeGamePlan, parseRoomDeckSnapshot, validateDeckSelection } from "../utils/gamePlan";
+import type { DeckPlanInput } from "../utils/gamePlan";
 import { playerToCompetitor, teamToCompetitor } from "../types/game";
 import {
   cleanupEmptyTeams,
@@ -18,6 +21,7 @@ import {
   reviewTeamAnswer as reviewTeamAnswerRow,
   setCompetitionStyle as setCompetitionStyleRow,
   setPlayerTeam,
+  setRoomDeckSnapshot,
   submitAnswer as submitAnswerRow,
   submitTeamAnswer as submitTeamAnswerRow,
   submitTeamTypedAnswer as submitTeamTypedAnswerRow,
@@ -25,6 +29,8 @@ import {
   transitionPhase,
   upsertPlayer,
 } from "../services/gameRoomRepository";
+import { fetchDeck, fetchDeckQuestions, markDeckHosted } from "../services/deckRepository";
+import { buildPlannedGame } from "../services/hostFlow";
 import { isSupabaseConfigured, supabase } from "../services/supabaseClient";
 import type {
   AnswerRecord,
@@ -56,6 +62,8 @@ interface UseGameRoomResult {
   teams: TeamRecord[];
   /** Scoped to room.currentQuestionId - see `answers`. */
   teamAnswers: TeamAnswerRecord[];
+  /** The active Question list for this room: Quick Play sample Questions, or the frozen multi-Deck Game Plan's flattened sequence. */
+  questionList: Question[];
   myAnswerOptionId: string | null;
   myTypedAnswerText: string | null;
   myGradingStatus: GradingStatus | null;
@@ -63,11 +71,21 @@ interface UseGameRoomResult {
   myTeamAnswerOptionId: string | null;
   myTeamTypedAnswerText: string | null;
   myTeamGradingStatus: GradingStatus | null;
+  /** Non-null only in Team mode: how many active Players still lack a Team, phrased for direct display. Null means Start Game's Team gate is clear. */
+  teamReadinessProblem: string | null;
   setCompetitionStyle: (style: CompetitionStyle) => Promise<{ ok: boolean }>;
   createTeam: (name: string) => Promise<TeamRecord>;
   joinTeam: (teamId: string) => Promise<void>;
   leaveTeam: () => Promise<void>;
-  startGame: () => Promise<void>;
+  /**
+   * Persists a live Deck-selection/duration change made from inside the
+   * Host Lobby as the room's `planned_game` snapshot. Only valid while
+   * `phase === 'lobby'` and no frozen Game Plan already exists for this
+   * room (a rematch Lobby's setup is locked/read-only) - rejects
+   * otherwise so a stray call can never clobber a locked setup.
+   */
+  updateRoomSetup: (selectedDeckIds: string[], targetDurationSeconds: number) => Promise<void>;
+  startGame: () => Promise<{ ok: boolean; error?: string }>;
   submitAnswer: (optionId: string) => Promise<void>;
   submitTypedAnswer: (text: string) => Promise<void>;
   submitTeamAnswer: (optionId: string) => Promise<void>;
@@ -174,6 +192,7 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
           currentQuestionId: row.current_question_id as string | null,
           gameInstanceId: row.game_instance_id as string,
           winnerIds: (row.winner_ids as string[]) ?? [],
+          deckSnapshot: parseRoomDeckSnapshot(row.deck_snapshot),
           createdAt: row.created_at as string,
           updatedAt: row.updated_at as string,
         };
@@ -341,6 +360,9 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode, self?.clientId, self?.displayName, self?.isHost]);
 
+  /** Quick Play (deckSnapshot null) uses the hardcoded sample; a Deck-hosted room reads only from its frozen Game Plan. */
+  const questionList: Question[] = room?.deckSnapshot?.kind === "game_plan" ? room.deckSnapshot.questions : QUESTIONS;
+
   const setCompetitionStyle = useCallback(
     async (style: CompetitionStyle) => setCompetitionStyleRow(roomCode, style),
     [roomCode],
@@ -370,12 +392,144 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
     await setPlayerTeam(roomCode, self.clientId, null);
   }, [roomCode, self]);
 
-  const startGame = useCallback(async () => {
-    if (!room) return;
+  /**
+   * Persists a live setup change to rooms.deck_snapshot as a
+   * `planned_game` (see hostFlow.buildPlannedGame). Guarded against the
+   * two situations that would otherwise let a stray call corrupt state:
+   * the room hasn't started yet, and this isn't a post-Play-Again
+   * rematch Lobby, whose setup is locked/read-only (a frozen `game_plan`
+   * already present while phase is still 'lobby' is exactly that case).
+   */
+  const updateRoomSetup = useCallback(
+    async (selectedDeckIds: string[], targetDurationSeconds: number) => {
+      if (!room) throw new Error("Room not loaded yet.");
+      if (room.phase !== "lobby") {
+        throw new Error("Setup can only change before the game starts.");
+      }
+      if (room.deckSnapshot?.kind === "game_plan") {
+        throw new Error("This room's Game Plan is locked from a previous game.");
+      }
+      const planned = await buildPlannedGame(selectedDeckIds, targetDurationSeconds);
+      await setRoomDeckSnapshot(roomCode, planned);
+    },
+    [roomCode, room],
+  );
+
+  /**
+   * Non-null only in Team mode: counts active (non-host) Players with no
+   * Team against the *locally held* players list, so the Host UI can
+   * disable Start Game and show the exact copy proactively rather than
+   * only after a failed attempt. startGame below re-checks this against
+   * a fresh fetch immediately before writing, since this local value can
+   * be a moment stale relative to the authoritative check that actually
+   * gates the transaction.
+   */
+  const teamReadinessProblem =
+    room?.competitionStyle === "team"
+      ? (() => {
+          const unassignedCount = players.filter((player) => !player.isHost && !player.teamId).length;
+          if (unassignedCount === 0) return null;
+          return unassignedCount === 1
+            ? "1 Player still needs to choose a Team."
+            : `${unassignedCount} Players still need to choose a Team.`;
+        })()
+      : null;
+
+  /**
+   * Three distinct cases, distinguished entirely by room.deckSnapshot's
+   * current shape - Start Game itself never needs to know which case it
+   * is ahead of time:
+   *  - null: Quick Play - unchanged hardcoded sample Question.
+   *  - kind "planned_game": first Start Game in this room for a
+   *    Deck-hosted game - re-fetches every selected Deck's *current*
+   *    saved content, revalidates readiness, computes the Game Plan
+   *    fresh, and writes it as the new frozen snapshot in the same
+   *    atomic update as the phase transition. Never enters the question
+   *    phase if any of this fails.
+   *  - kind "game_plan": Play Again already happened once in this room
+   *    (a rematch) - the frozen plan from the first Start Game is reused
+   *    verbatim, only current_question_id resets to its first Question.
+   */
+  const startGame = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
+    if (!room) return { ok: false, error: "Room not loaded yet." };
+
     if (room.competitionStyle === "team") {
       await cleanupEmptyTeams(roomCode);
+      // Re-fetched fresh here (rather than trusting the hook's own
+      // `players` state) since this is the authoritative gate that
+      // actually decides whether the game may start - it must not act on
+      // state that could be a moment stale relative to realtime.
+      const freshPlayers = await fetchPlayers(roomCode);
+      const unassignedCount = freshPlayers.filter((player) => !player.isHost && !player.teamId).length;
+      if (unassignedCount > 0) {
+        return {
+          ok: false,
+          error:
+            unassignedCount === 1
+              ? "1 Player still needs to choose a Team."
+              : `${unassignedCount} Players still need to choose a Team.`,
+        };
+      }
     }
-    await transitionPhase(roomCode, room.phase, "question", { current_question_id: FIRST_QUESTION_ID });
+
+    const snapshot = room.deckSnapshot;
+
+    if (snapshot?.kind === "game_plan") {
+      const ok = await transitionPhase(roomCode, room.phase, "question", {
+        current_question_id: snapshot.questions[0]?.id ?? null,
+      });
+      return ok;
+    }
+
+    if (snapshot?.kind === "planned_game") {
+      if (snapshot.selectedDeckIds.length === 0) {
+        return { ok: false, error: "Choose at least one Deck before starting." };
+      }
+
+      try {
+        const deckInputs: DeckPlanInput[] = await Promise.all(
+          snapshot.selectedDeckIds.map(async (deckId) => {
+            const deck = await fetchDeck(deckId);
+            if (!deck) throw new Error("One of the selected Decks is no longer available.");
+            const allQuestions = await fetchDeckQuestions(deckId);
+            const readiness = computeDeckReadiness(allQuestions);
+            if (!readiness.ready) {
+              throw new Error(`"${deck.title}" is no longer ready to host: ${readiness.problems[0]}`);
+            }
+            return { deckId: deck.id, deckTitle: deck.title, questions: allQuestions };
+          }),
+        );
+
+        const validation = validateDeckSelection(deckInputs);
+        if (!validation.valid) {
+          return { ok: false, error: validation.reason };
+        }
+
+        const plan = computeGamePlan(deckInputs, snapshot.targetDurationSeconds);
+        const firstQuestionId = plan.questions[0]?.id ?? null;
+        if (!firstQuestionId) {
+          return { ok: false, error: "The selected Decks don't contain any Questions yet." };
+        }
+
+        const result = await transitionPhase(roomCode, room.phase, "question", {
+          current_question_id: firstQuestionId,
+          deck_snapshot: plan,
+        });
+
+        if (result.ok) {
+          void Promise.all(deckInputs.map((deck) => markDeckHosted(deck.deckId))).catch((error: unknown) => {
+            console.error("Failed to record last_hosted_at:", error);
+          });
+        }
+
+        return result;
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : "Couldn't start the game. Try again." };
+      }
+    }
+
+    // Quick Play (deckSnapshot null).
+    return transitionPhase(roomCode, room.phase, "question", { current_question_id: FIRST_QUESTION_ID });
   }, [roomCode, room]);
 
   const submitAnswer = useCallback(
@@ -418,36 +572,36 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
 
   const revealAnswer = useCallback(async () => {
     if (!room || !room.currentQuestionId) return;
-    const question = getQuestionById(room.currentQuestionId);
+    const question = getQuestionById(questionList, room.currentQuestionId);
     if (!question) return;
     await revealAndScore(roomCode, room.gameInstanceId, room.currentQuestionId, room.competitionStyle, question);
-  }, [roomCode, room]);
+  }, [roomCode, room, questionList]);
 
   const advanceQuestion = useCallback(async () => {
     if (!room) return;
-    const nextQuestionId = getNextQuestionId(room.currentQuestionId);
+    const nextQuestionId = getNextQuestionId(questionList, room.currentQuestionId);
     if (!nextQuestionId) return;
     await transitionPhase(roomCode, "reveal", "question", { current_question_id: nextQuestionId });
-  }, [roomCode, room]);
+  }, [roomCode, room, questionList]);
 
   const reviewAnswer = useCallback(
     async (clientId: string, decision: "correct" | "incorrect") => {
       if (!room || !room.currentQuestionId) return;
-      const question = getQuestionById(room.currentQuestionId);
+      const question = getQuestionById(questionList, room.currentQuestionId);
       if (!question) return;
       await reviewAnswerRow(roomCode, room.gameInstanceId, room.currentQuestionId, clientId, decision, question);
     },
-    [roomCode, room],
+    [roomCode, room, questionList],
   );
 
   const reviewTeamAnswer = useCallback(
     async (teamId: string, decision: "correct" | "incorrect") => {
       if (!room || !room.currentQuestionId) return;
-      const question = getQuestionById(room.currentQuestionId);
+      const question = getQuestionById(questionList, room.currentQuestionId);
       if (!question) return;
       await reviewTeamAnswerRow(roomCode, room.gameInstanceId, room.currentQuestionId, teamId, decision, question);
     },
-    [roomCode, room],
+    [roomCode, room, questionList],
   );
 
   const showLeaderboard = useCallback(async () => {
@@ -467,6 +621,13 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
     await transitionPhase(roomCode, room.phase, "ended", { winner_ids: winnerIds });
   }, [roomCode, room, players, teams]);
 
+  /**
+   * room.deckSnapshot is never touched here: Play Again in the same
+   * room must reuse the exact same frozen Game Plan (or stay null for
+   * Quick Play) - only current_question_id/scores/answers reset. The
+   * next Start Game sees a `kind: "game_plan"` snapshot already present
+   * and reuses it verbatim (see startGame above).
+   */
   const playAgain = useCallback(async () => {
     if (!room) return;
     await resetRoomForNewGame(roomCode, room.phase);
@@ -505,6 +666,7 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
     answers,
     teams,
     teamAnswers,
+    questionList,
     myAnswerOptionId,
     myTypedAnswerText,
     myGradingStatus,
@@ -512,10 +674,12 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
     myTeamAnswerOptionId,
     myTeamTypedAnswerText,
     myTeamGradingStatus,
+    teamReadinessProblem,
     setCompetitionStyle,
     createTeam,
     joinTeam,
     leaveTeam,
+    updateRoomSetup,
     startGame,
     submitAnswer,
     submitTypedAnswer,

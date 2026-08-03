@@ -42,6 +42,7 @@ export interface TypedAnswerQuestion extends QuestionBase {
 }
 
 export type Question = MultipleChoiceQuestion | TypedAnswerQuestion;
+export type AnswerMethod = Question["answerMethod"];
 
 export const QUESTIONS: Question[] = [
   {
@@ -69,13 +70,22 @@ export const QUESTIONS: Question[] = [
 
 export const FIRST_QUESTION_ID = QUESTIONS[0].id;
 
-export function getQuestionById(id: string | null): Question | null {
-  return QUESTIONS.find((question) => question.id === id) ?? null;
+/**
+ * Both functions below take an explicit question list rather than
+ * always reading the hardcoded QUESTIONS array - Milestone 5 plays
+ * either the built-in Quick Play sample (QUESTIONS) or a creator Deck's
+ * immutable snapshot (room.deckSnapshot), and progression logic must
+ * work identically for a snapshot of any length, not just these two
+ * sample questions. Every call site passes whichever list is active for
+ * that room.
+ */
+export function getQuestionById(questions: Question[], id: string | null): Question | null {
+  return questions.find((question) => question.id === id) ?? null;
 }
 
 /** Null once the last question has been reached - the caller's signal that only Leaderboard remains. */
-export function getNextQuestionId(currentQuestionId: string | null): string | null {
-  const index = QUESTIONS.findIndex((question) => question.id === currentQuestionId);
-  if (index === -1 || index + 1 >= QUESTIONS.length) return null;
-  return QUESTIONS[index + 1].id;
+export function getNextQuestionId(questions: Question[], currentQuestionId: string | null): string | null {
+  const index = questions.findIndex((question) => question.id === currentQuestionId);
+  if (index === -1 || index + 1 >= questions.length) return null;
+  return questions[index + 1].id;
 }

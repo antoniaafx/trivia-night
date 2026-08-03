@@ -2,8 +2,10 @@ import { useParams } from "react-router-dom";
 import { useGameRoom } from "../hooks/useGameRoom";
 import { getQuestionById, QUESTIONS } from "../data/questions";
 import { computeAggregateReveal, computeWinners } from "../utils/scoring";
+import { findSectionForQuestion } from "../utils/gamePlan";
 import LoadingScreen from "../components/LoadingScreen";
 import CompetitorLeaderboard from "../components/CompetitorLeaderboard";
+import GameSetupSummary from "../components/GameSetupSummary";
 import type { GradedLike } from "../utils/scoring";
 import type { Competitor } from "../types/game";
 import { playerToCompetitor, teamToCompetitor } from "../types/game";
@@ -22,10 +24,11 @@ function questionNumber(questionId: string | null): number {
  */
 function StagePage() {
   const { roomCode = "" } = useParams<{ roomCode: string }>();
-  const { connectionStatus, loading, roomNotFound, room, players, answers, teams, teamAnswers } = useGameRoom({
-    roomCode,
-    self: null,
-  });
+  const { connectionStatus, loading, roomNotFound, room, players, answers, teams, teamAnswers, questionList } =
+    useGameRoom({
+      roomCode,
+      self: null,
+    });
 
   if (connectionStatus === "unconfigured") {
     return (
@@ -48,7 +51,9 @@ function StagePage() {
     );
   }
 
-  const question = getQuestionById(room.currentQuestionId);
+  const question = getQuestionById(questionList, room.currentQuestionId);
+  const sectionInfo =
+    room.deckSnapshot?.kind === "game_plan" ? findSectionForQuestion(room.deckSnapshot, room.currentQuestionId) : null;
   const isTeamMode = room.competitionStyle === "team";
   const scorablePlayers = players.filter((player) => !player.isHost);
   const competitors: Competitor[] = isTeamMode
@@ -69,12 +74,17 @@ function StagePage() {
           ) : (
             <p className="stage-status">Waiting for the host to start...</p>
           )}
+          <GameSetupSummary deckSnapshot={room.deckSnapshot} />
         </>
       )}
 
       {room.phase === "question" && question && (
         <>
-          <p className="stage-eyebrow">Question {questionNumber(question.id)}</p>
+          <p className="stage-eyebrow">
+            {sectionInfo
+              ? `${sectionInfo.section.deckTitle} — Deck ${sectionInfo.sectionNumber} of ${sectionInfo.totalSections}`
+              : `Question ${questionNumber(question.id)}`}
+          </p>
           <h1>{question.prompt}</h1>
           {question.answerMethod === "multiple_choice" && (
             <div className="stage-options">

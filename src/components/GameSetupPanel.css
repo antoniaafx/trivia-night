@@ -1,0 +1,93 @@
+.game-setup-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  text-align: left;
+}
+
+.game-setup-panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.game-setup-panel-section h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.game-setup-panel-hint {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.game-setup-panel-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0;
+  margin: 0;
+}
+
+.game-setup-panel-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.game-setup-panel-unavailable .game-setup-panel-item {
+  opacity: 0.7;
+}
+
+.game-setup-panel-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.game-setup-panel-order {
+  font-family: var(--font-heading);
+  font-weight: 700;
+}
+
+.game-setup-panel-item-actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.game-setup-panel-presets {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.game-setup-panel-preset-selected {
+  border-color: var(--color-teal);
+  color: var(--color-teal);
+}
+
+#setup-duration-input {
+  width: 7rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.game-setup-panel-summary {
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+}

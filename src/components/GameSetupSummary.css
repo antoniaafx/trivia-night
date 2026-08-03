@@ -1,0 +1,19 @@
+.game-setup-summary {
+  width: 100%;
+  max-width: 420px;
+  text-align: left;
+}
+
+.game-setup-summary-list {
+  list-style: none;
+  margin: 0 0 var(--space-xs);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.game-setup-summary-status {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}

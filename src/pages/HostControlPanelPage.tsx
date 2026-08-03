@@ -1,14 +1,20 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import { useClientId } from "../hooks/useClientId";
+import { useCreatorId } from "../hooks/useCreatorId";
 import { useRoomChannel } from "../hooks/useRoomChannel";
 import { useGameRoom } from "../hooks/useGameRoom";
+import { useAutosaveController, type SaveStatus } from "../hooks/useAutosaveController";
 import { getNextQuestionId, getQuestionById, type Question, type TypedAnswerQuestion } from "../data/questions";
 import { computeAggregateReveal, computeWinners } from "../utils/scoring";
+import { findSectionForQuestion, type RoomDeckSnapshot } from "../utils/gamePlan";
+import { formatApproximateMinutes } from "../utils/formatDuration";
+import { fetchDecksWithQuestions } from "../services/deckRepository";
 import PlayerList from "../components/PlayerList";
 import LoadingScreen from "../components/LoadingScreen";
 import CompetitorLeaderboard from "../components/CompetitorLeaderboard";
+import GameSetupPanel, { type DeckEntry } from "../components/GameSetupPanel";
 import type { RoomPlayer } from "../types/room";
 import type {
   AnswerRecord,
@@ -43,6 +49,7 @@ interface PendingReviewItem {
 function HostControlPanelPage() {
   const { roomCode = "" } = useParams<{ roomCode: string }>();
   const clientId = useClientId();
+  const creatorId = useCreatorId();
 
   const self = useMemo<RoomPlayer>(
     () => ({ clientId, displayName: "Host", isHost: true, joinedAt: Date.now() }),
@@ -63,7 +70,10 @@ function HostControlPanelPage() {
     answers,
     teams,
     teamAnswers,
+    questionList,
+    teamReadinessProblem,
     setCompetitionStyle,
+    updateRoomSetup,
     startGame,
     revealAnswer,
     advanceQuestion,
@@ -73,6 +83,90 @@ function HostControlPanelPage() {
     showWinner,
     playAgain,
   } = useGameRoom({ roomCode, self });
+
+  const [startError, setStartError] = useState<string | null>(null);
+
+  // Every Deck the Host owns (in this browser), each with its full
+  // Question list - the picker/readiness data GameSetupPanel needs.
+  // Fetched once; My Decks/Deck Editor already refresh this list on
+  // their own pages, and Deck content itself doesn't need to update
+  // live inside this picker mid-Lobby (only the *selection* does).
+  const [availableDecks, setAvailableDecks] = useState<DeckEntry[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchDecksWithQuestions(creatorId)
+      .then((decks) => {
+        if (!cancelled) setAvailableDecks(decks);
+      })
+      .catch((error: unknown) => {
+        console.error("Failed to load Decks for Game Setup:", error);
+        if (!cancelled) setAvailableDecks([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [creatorId]);
+
+  // Mirrors room.deckSnapshot locally so the setup inputs stay
+  // controlled and responsive while a write is debounced/in flight -
+  // seeded once from the room's own planned_game the first time it's
+  // seen, then treated as the source of truth for further local edits
+  // (the same pattern DeckEditorPage uses for its title field).
+  const [setupInitialized, setSetupInitialized] = useState(false);
+  const [setupSelectedDeckIds, setSetupSelectedDeckIds] = useState<string[]>([]);
+  const [setupTargetDurationSeconds, setSetupTargetDurationSeconds] = useState(30 * 60);
+  const setupAutosave = useAutosaveController();
+
+  useEffect(() => {
+    if (setupInitialized || !room) return;
+    if (room.deckSnapshot?.kind === "planned_game") {
+      setSetupSelectedDeckIds(room.deckSnapshot.selectedDeckIds);
+      setSetupTargetDurationSeconds(room.deckSnapshot.targetDurationSeconds);
+    }
+    setSetupInitialized(true);
+  }, [room, setupInitialized]);
+
+  function handleChangeSelection(nextIds: string[]) {
+    setSetupSelectedDeckIds(nextIds);
+    void setupAutosave
+      .saveNow("room-setup", () => updateRoomSetup(nextIds, setupTargetDurationSeconds))
+      .catch(() => {
+        // Status badge already reflects the failure; Retry re-attempts this same write.
+      });
+  }
+
+  function handleChangeDuration(nextSeconds: number) {
+    setSetupTargetDurationSeconds(nextSeconds);
+    setupAutosave.scheduleSave("room-setup", () => updateRoomSetup(setupSelectedDeckIds, nextSeconds));
+  }
+
+  const [styleError, setStyleError] = useState<string | null>(null);
+
+  async function handleChangeStyle(style: CompetitionStyle) {
+    if (!room || style === room.competitionStyle) return;
+    setStyleError(null);
+    const hasJoinedCompetitors =
+      room.competitionStyle === "team" ? teams.length > 0 : players.filter((player) => !player.isHost).length > 0;
+    if (hasJoinedCompetitors) {
+      const message =
+        style === "team"
+          ? "Switching to Team Play means every joined Player will need to choose a Team before you can start. Continue?"
+          : "Switching to Solo Play will disband all current Teams. Continue?";
+      if (!window.confirm(message)) return;
+    }
+    const result = await setCompetitionStyle(style);
+    if (!result.ok) {
+      setStyleError("Couldn't change competition style right now. Try again.");
+    }
+  }
+
+  async function handleStart() {
+    setStartError(null);
+    const result = await startGame();
+    if (!result.ok) {
+      setStartError(result.error ?? "Couldn't start the game. Try again.");
+    }
+  }
 
   const joinUrl = `${window.location.origin}/join?room=${roomCode}`;
   const stageUrl = `${window.location.origin}/stage/${roomCode}`;
@@ -99,7 +193,9 @@ function HostControlPanelPage() {
     );
   }
 
-  const question = getQuestionById(room.currentQuestionId);
+  const question = getQuestionById(questionList, room.currentQuestionId);
+  const sectionInfo =
+    room.deckSnapshot?.kind === "game_plan" ? findSectionForQuestion(room.deckSnapshot, room.currentQuestionId) : null;
   const isTeamMode = room.competitionStyle === "team";
   const competitors: Competitor[] = isTeamMode
     ? teams.map(teamToCompetitor)
@@ -129,7 +225,7 @@ function HostControlPanelPage() {
       };
     });
 
-  const nextQuestionId = getNextQuestionId(room.currentQuestionId);
+  const nextQuestionId = getNextQuestionId(questionList, room.currentQuestionId);
 
   function handleReview(id: string, decision: "correct" | "incorrect") {
     if (isTeamMode) {
@@ -155,18 +251,29 @@ function HostControlPanelPage() {
       {room.phase === "lobby" && (
         <LobbyPhase
           competitionStyle={room.competitionStyle}
-          isLocked={scorablePlayers.length > 0}
-          onChangeStyle={(style) => void setCompetitionStyle(style)}
+          onChangeStyle={(style) => void handleChangeStyle(style)}
+          styleError={styleError}
           joinedPlayers={joinedPlayers}
           teams={teams}
           teamPlayers={scorablePlayers}
-          onStart={() => void startGame()}
+          onStart={() => void handleStart()}
+          startError={startError}
+          teamReadinessProblem={teamReadinessProblem}
+          deckSnapshot={room.deckSnapshot}
+          availableDecks={availableDecks}
+          setupSelectedDeckIds={setupSelectedDeckIds}
+          setupTargetDurationSeconds={setupTargetDurationSeconds}
+          onChangeSelection={handleChangeSelection}
+          onChangeDuration={handleChangeDuration}
+          setupStatus={setupAutosave.status}
+          onRetrySetup={setupAutosave.retry}
         />
       )}
 
       {room.phase === "question" && question && (
         <QuestionPhase
           question={question}
+          sectionInfo={sectionInfo}
           answeredCount={gradedAnswers.length}
           totalCompetitors={totalCompetitors}
           unitLabel={unitLabel}
@@ -210,22 +317,13 @@ function HostControlPanelPage() {
 
 function CompetitionStylePicker({
   value,
-  locked,
   onChange,
 }: {
   value: CompetitionStyle;
-  locked: boolean;
   onChange: (style: CompetitionStyle) => void;
 }) {
-  const [rejected, setRejected] = useState(false);
-
-  function handleChange(style: CompetitionStyle) {
-    setRejected(false);
-    onChange(style);
-  }
-
   return (
-    <fieldset className="host-style-picker" disabled={locked}>
+    <fieldset className="host-style-picker">
       <legend>Competition Style</legend>
       <label>
         <input
@@ -233,7 +331,7 @@ function CompetitionStylePicker({
           name="competition-style"
           value="team"
           checked={value === "team"}
-          onChange={() => handleChange("team")}
+          onChange={() => onChange("team")}
         />
         Team Play
       </label>
@@ -243,37 +341,105 @@ function CompetitionStylePicker({
           name="competition-style"
           value="solo"
           checked={value === "solo"}
-          onChange={() => handleChange("solo")}
+          onChange={() => onChange("solo")}
         />
         Solo Play
       </label>
-      {locked && <p className="host-style-note">Competition style is locked after players join.</p>}
-      {rejected && (
-        <p className="host-style-note" role="alert">
-          Someone just joined — competition style is now locked.
-        </p>
-      )}
     </fieldset>
+  );
+}
+
+function SetupSaveStatusBadge({ status, onRetry }: { status: SaveStatus; onRetry: () => void }) {
+  if (status === "idle") return null;
+  return (
+    <p className="host-setup-save-status" role="status">
+      {status === "saving" && "Saving setup…"}
+      {status === "saved" && "Setup saved"}
+      {status === "error" && (
+        <>
+          Couldn&rsquo;t save setup.{" "}
+          <button type="button" className="host-setup-retry" onClick={onRetry}>
+            Retry
+          </button>
+        </>
+      )}
+    </p>
+  );
+}
+
+function RematchSummary({ plan }: { plan: Extract<RoomDeckSnapshot, { kind: "game_plan" }> }) {
+  return (
+    <div className="host-lobby-setup card">
+      <h3>Game Plan (locked)</h3>
+      <p className="host-lobby-status">
+        This rematch reuses the same Game Plan as before. To change Decks or duration, create a new room.
+      </p>
+      <ul className="game-setup-panel-list">
+        {plan.sections.map((section, index) => (
+          <li key={section.deckId} className="game-setup-panel-item">
+            <span>
+              {index + 1}. {section.deckTitle}
+            </span>
+            <span className="game-setup-panel-hint">
+              {section.questionIds.length} Question{section.questionIds.length === 1 ? "" : "s"} ·{" "}
+              {formatApproximateMinutes(section.estimatedSeconds)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="host-lobby-status">
+        {plan.questions.length} Question{plan.questions.length === 1 ? "" : "s"} ·{" "}
+        {formatApproximateMinutes(plan.estimatedDurationSeconds)}
+      </p>
+    </div>
   );
 }
 
 function LobbyPhase({
   competitionStyle,
-  isLocked,
   onChangeStyle,
+  styleError,
   joinedPlayers,
   teams,
   teamPlayers,
   onStart,
+  startError,
+  teamReadinessProblem,
+  deckSnapshot,
+  availableDecks,
+  setupSelectedDeckIds,
+  setupTargetDurationSeconds,
+  onChangeSelection,
+  onChangeDuration,
+  setupStatus,
+  onRetrySetup,
 }: {
   competitionStyle: CompetitionStyle;
-  isLocked: boolean;
   onChangeStyle: (style: CompetitionStyle) => void;
+  styleError: string | null;
   joinedPlayers: RoomPlayer[];
   teams: TeamRecord[];
   teamPlayers: PlayerRecord[];
   onStart: () => void;
+  startError: string | null;
+  teamReadinessProblem: string | null;
+  deckSnapshot: RoomDeckSnapshot | null;
+  availableDecks: DeckEntry[] | null;
+  setupSelectedDeckIds: string[];
+  setupTargetDurationSeconds: number;
+  onChangeSelection: (selectedDeckIds: string[]) => void;
+  onChangeDuration: (targetDurationSeconds: number) => void;
+  setupStatus: SaveStatus;
+  onRetrySetup: () => void;
 }) {
+  const isRematch = deckSnapshot?.kind === "game_plan";
+  const isQuickPlay = deckSnapshot === null;
+  const isLiveSetup = deckSnapshot?.kind === "planned_game";
+
+  const deckSelectionBlocked = isLiveSetup && deckSnapshot.selectedDeckIds.length === 0;
+  const startBlockedReason =
+    teamReadinessProblem ?? (deckSelectionBlocked ? "Choose at least one Deck before starting." : null);
+
   const startHint =
     competitionStyle === "team"
       ? teams.length === 0
@@ -285,7 +451,12 @@ function LobbyPhase({
 
   return (
     <>
-      <CompetitionStylePicker value={competitionStyle} locked={isLocked} onChange={onChangeStyle} />
+      <CompetitionStylePicker value={competitionStyle} onChange={onChangeStyle} />
+      {styleError && (
+        <p className="host-style-note" role="alert">
+          {styleError}
+        </p>
+      )}
 
       {competitionStyle === "team" ? (
         <TeamRoster teams={teams} players={teamPlayers} />
@@ -298,9 +469,50 @@ function LobbyPhase({
         </div>
       )}
 
+      {isQuickPlay && (
+        <div className="host-lobby-setup card">
+          <h3>Quick Play</h3>
+          <p className="host-lobby-status">Playing the built-in sample Questions.</p>
+        </div>
+      )}
+
+      {isRematch && <RematchSummary plan={deckSnapshot} />}
+
+      {isLiveSetup && (
+        <div className="host-lobby-setup">
+          <div className="host-lobby-setup-header">
+            <h3>Game Setup</h3>
+            <SetupSaveStatusBadge status={setupStatus} onRetry={onRetrySetup} />
+          </div>
+          {availableDecks === null ? (
+            <p className="host-lobby-status">Loading your Decks...</p>
+          ) : availableDecks.length === 0 ? (
+            <p className="host-lobby-status">You haven&rsquo;t created any Decks yet. Manage Decks from My Decks.</p>
+          ) : (
+            <GameSetupPanel
+              availableDecks={availableDecks}
+              selectedDeckIds={setupSelectedDeckIds}
+              targetDurationSeconds={setupTargetDurationSeconds}
+              onChangeSelection={onChangeSelection}
+              onChangeDuration={onChangeDuration}
+            />
+          )}
+        </div>
+      )}
+
       {startHint && <p className="host-answered-count">{startHint}</p>}
-      <button type="button" className="btn btn-primary" onClick={onStart}>
-        Start Game
+      {startBlockedReason && (
+        <p className="host-style-note" role="alert">
+          {startBlockedReason}
+        </p>
+      )}
+      {startError && (
+        <p className="host-style-note" role="alert">
+          {startError}
+        </p>
+      )}
+      <button type="button" className="btn btn-primary" onClick={onStart} disabled={startBlockedReason !== null}>
+        {isRematch ? "Start Rematch" : "Start Game"}
       </button>
     </>
   );
@@ -343,12 +555,14 @@ function TeamRoster({ teams, players }: { teams: TeamRecord[]; players: PlayerRe
 
 function QuestionPhase({
   question,
+  sectionInfo,
   answeredCount,
   totalCompetitors,
   unitLabel,
   onReveal,
 }: {
   question: Question;
+  sectionInfo: { section: { deckTitle: string }; sectionNumber: number; totalSections: number } | null;
   answeredCount: number;
   totalCompetitors: number;
   unitLabel: string;
@@ -358,7 +572,11 @@ function QuestionPhase({
 
   return (
     <div className="host-phase card">
-      <p className="host-phase-label">Question</p>
+      <p className="host-phase-label">
+        Question
+        {sectionInfo &&
+          ` — ${sectionInfo.section.deckTitle} — Deck ${sectionInfo.sectionNumber} of ${sectionInfo.totalSections}`}
+      </p>
       <h2>{question.prompt}</h2>
 
       {question.answerMethod === "multiple_choice" ? (

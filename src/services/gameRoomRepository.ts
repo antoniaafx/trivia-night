@@ -1,5 +1,7 @@
 import type { Question } from "../data/questions";
 import { gradeSubmission, pointsForGrade, sumPointsAwarded } from "../utils/scoring";
+import { parseRoomDeckSnapshot } from "../utils/gamePlan";
+import type { RoomDeckSnapshot } from "../utils/gamePlan";
 import { supabase } from "./supabaseClient";
 import { isPhaseTransitionAllowed } from "../types/game";
 import type {
@@ -26,6 +28,7 @@ interface RoomRow {
   current_question_id: string | null;
   game_instance_id: string;
   winner_ids: string[];
+  deck_snapshot: unknown;
   created_at: string;
   updated_at: string;
 }
@@ -82,6 +85,7 @@ function mapRoomRow(row: RoomRow): RoomRecord {
     currentQuestionId: row.current_question_id,
     gameInstanceId: row.game_instance_id,
     winnerIds: row.winner_ids ?? [],
+    deckSnapshot: parseRoomDeckSnapshot(row.deck_snapshot),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -209,6 +213,23 @@ export async function ensureRoomExists(roomCode: string): Promise<void> {
   const { error } = await supabase
     .from("rooms")
     .upsert({ room_code: roomCode }, { onConflict: "room_code", ignoreDuplicates: true });
+
+  if (error) throw error;
+}
+
+/**
+ * Writes the Host's Deck/duration choices as a `kind: "setup"` object
+ * (see utils/gamePlan.ts) as soon as Game Setup creates the room - a
+ * plain update, not a phase transition, since the room stays in lobby.
+ * This is what makes a Lobby refresh before Start Game safe: the
+ * choices live in the room row itself, not only in this tab's memory.
+ * Start Game later replaces this with the frozen game_plan snapshot.
+ */
+export async function setRoomDeckSnapshot(roomCode: string, snapshot: RoomDeckSnapshot): Promise<void> {
+  const { error } = await supabase
+    .from("rooms")
+    .update({ deck_snapshot: snapshot, updated_at: new Date().toISOString() })
+    .eq("room_code", roomCode);
 
   if (error) throw error;
 }
@@ -521,6 +542,7 @@ export async function transitionPhase(
     current_question_id: string | null;
     game_instance_id: string;
     winner_ids: string[];
+    deck_snapshot: RoomDeckSnapshot | null;
   }> = {},
 ): Promise<{ ok: boolean }> {
   if (!isPhaseTransitionAllowed(fromPhase, toPhase)) {

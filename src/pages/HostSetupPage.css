@@ -1,0 +1,54 @@
+.host-setup-choice {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-lg) var(--space-md);
+  text-align: center;
+  width: 100%;
+}
+
+.host-setup-options {
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.host-setup-option {
+  display: block;
+  width: 100%;
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  border: 2px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.host-setup-option:focus-visible {
+  outline: 3px solid var(--color-electric-blue);
+  outline-offset: 2px;
+}
+
+.host-setup-option:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.host-setup-option h2 {
+  margin: 0 0 0.25rem;
+}
+
+.host-setup-option p {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.host-setup-manage-link {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import { useClientId } from "../hooks/useClientId";
 import { useRoomChannel } from "../hooks/useRoomChannel";
@@ -8,8 +8,9 @@ import { computeWinners, validateTeamName } from "../utils/scoring";
 import PlayerList from "../components/PlayerList";
 import LoadingScreen from "../components/LoadingScreen";
 import CompetitorLeaderboard from "../components/CompetitorLeaderboard";
+import GameSetupSummary from "../components/GameSetupSummary";
 import type { RoomPlayer } from "../types/room";
-import type { Competitor, GradingStatus, TeamRecord } from "../types/game";
+import type { CompetitionStyle, Competitor, GradingStatus, TeamRecord } from "../types/game";
 import { playerToCompetitor, teamToCompetitor } from "../types/game";
 import "./PlayerRoomPage.css";
 
@@ -72,6 +73,7 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
     myTeamAnswerOptionId,
     myTeamTypedAnswerText,
     myTeamGradingStatus,
+    questionList,
     createTeam,
     joinTeam,
     leaveTeam,
@@ -106,6 +108,33 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
     setIsLateJoin(sessionStorage.getItem(key) !== room.gameInstanceId);
   }, [loading, room, roomCode]);
 
+  // A brief, self-clearing notice for the moment the Host switches
+  // Solo/Team mid-Lobby - the lobby UI below already reacts correctly to
+  // whichever style is current (team selector vs. plain waiting view),
+  // this is only the transient "something just changed" heads-up.
+  const previousStyleRef = useRef<CompetitionStyle | null>(null);
+  const [styleChangeNotice, setStyleChangeNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!room || room.phase !== "lobby") return;
+    const previous = previousStyleRef.current;
+    if (previous !== null && previous !== room.competitionStyle) {
+      setStyleChangeNotice(
+        room.competitionStyle === "team"
+          ? "The host switched to Team Play — choose a team to keep playing."
+          : "The host switched to Solo Play.",
+      );
+      previousStyleRef.current = room.competitionStyle;
+      const timer = setTimeout(() => setStyleChangeNotice(null), 6000);
+      return () => clearTimeout(timer);
+    }
+    previousStyleRef.current = room.competitionStyle;
+    // Deliberately narrower than `room` itself: this should only ever
+    // re-run when phase or competitionStyle actually change, not on
+    // every unrelated realtime room update (deck_snapshot edits, etc).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room?.phase, room?.competitionStyle]);
+
   if (connectionStatus === "unconfigured" || presenceStatus === "unconfigured") {
     return (
       <div className="player-room">
@@ -137,7 +166,7 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
     );
   }
 
-  const question = getQuestionById(room.currentQuestionId);
+  const question = getQuestionById(questionList, room.currentQuestionId);
   const isTeamMode = room.competitionStyle === "team";
   const scorablePlayers = players.filter((player) => !player.isHost);
   const competitors: Competitor[] = isTeamMode
@@ -161,6 +190,12 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
                 We haven&rsquo;t seen the host yet - double check the room code.
               </p>
             )}
+            {styleChangeNotice && (
+              <p className="player-room-status" role="status">
+                {styleChangeNotice}
+              </p>
+            )}
+            <GameSetupSummary deckSnapshot={room.deckSnapshot} />
             <TeamSelector
               teams={teams}
               myTeamId={myTeamId}
@@ -177,6 +212,12 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
                 We haven&rsquo;t seen the host yet - double check the room code.
               </p>
             )}
+            {styleChangeNotice && (
+              <p className="player-room-status" role="status">
+                {styleChangeNotice}
+              </p>
+            )}
+            <GameSetupSummary deckSnapshot={room.deckSnapshot} />
             <div className="player-room-roster">
               <h2>Also here</h2>
               <PlayerList players={otherPlayers} emptyMessage="You're the first one here!" />
