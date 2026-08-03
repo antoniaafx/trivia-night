@@ -24,7 +24,7 @@ function questionNumber(questionId: string | null): number {
  */
 function StagePage() {
   const { roomCode = "" } = useParams<{ roomCode: string }>();
-  const { connectionStatus, loading, roomNotFound, room, players, answers, teams, teamAnswers, questionList } =
+  const { connectionStatus, loading, roomNotFound, room, players, answers, teams, teamAnswers, questionList, lobbyStage } =
     useGameRoom({
       roomCode,
       self: null,
@@ -67,7 +67,16 @@ function StagePage() {
 
   return (
     <div className="stage">
-      {room.phase === "lobby" && (
+      {room.phase === "lobby" && lobbyStage === "invite" && (
+        <>
+          <h1>Room {roomCode}</h1>
+          <p className="stage-status" role="status">
+            Waiting for players to join...
+          </p>
+        </>
+      )}
+
+      {room.phase === "lobby" && lobbyStage !== "invite" && (
         <>
           <h1>Room {roomCode}</h1>
           {isTeamMode ? (
@@ -81,7 +90,7 @@ function StagePage() {
               Waiting for the host to start...
             </p>
           )}
-          <GameSetupSummary deckSnapshot={room.deckSnapshot} />
+          <GameSetupSummary deckSnapshot={room.deckSnapshot} competitionStyle={room.competitionStyle} />
         </>
       )}
 

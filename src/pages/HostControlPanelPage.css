@@ -30,6 +30,14 @@
   max-width: 420px;
 }
 
+.host-participation-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  font-weight: 600;
+}
+
 .host-phase {
   width: 100%;
   max-width: 480px;

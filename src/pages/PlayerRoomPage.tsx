@@ -75,6 +75,7 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
     myTeamTypedAnswerText,
     myTeamGradingStatus,
     questionList,
+    lobbyStage,
     createTeam,
     joinTeam,
     leaveTeam,
@@ -194,7 +195,21 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
         {connectionStatus === "connected" ? `You're in! Room ${roomCode}` : describeStatus(connectionStatus)}
       </p>
 
+      {room.phase === "lobby" && lobbyStage === "invite" && (
+        <>
+          <h1>Waiting for the host...</h1>
+          {connectionStatus === "connected" && !hostPresent && (
+            <p className="player-room-warning">We haven&rsquo;t seen the host yet - double check the room code.</p>
+          )}
+          <div className="player-room-roster">
+            <h2>Also here</h2>
+            <PlayerList players={otherPlayers} emptyMessage="You're the first one here!" />
+          </div>
+        </>
+      )}
+
       {room.phase === "lobby" &&
+        lobbyStage !== "invite" &&
         (isTeamMode ? (
           <>
             {connectionStatus === "connected" && !hostPresent && (
@@ -207,7 +222,7 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
                 {styleChangeNotice}
               </p>
             )}
-            <GameSetupSummary deckSnapshot={room.deckSnapshot} />
+            <GameSetupSummary deckSnapshot={room.deckSnapshot} competitionStyle={room.competitionStyle} />
             <TeamSelector
               teams={teams}
               myTeamId={myTeamId}
@@ -229,7 +244,7 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
                 {styleChangeNotice}
               </p>
             )}
-            <GameSetupSummary deckSnapshot={room.deckSnapshot} />
+            <GameSetupSummary deckSnapshot={room.deckSnapshot} competitionStyle={room.competitionStyle} />
             <div className="player-room-roster">
               <h2>Also here</h2>
               <PlayerList players={otherPlayers} emptyMessage="You're the first one here!" />

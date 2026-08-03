@@ -1,21 +1,43 @@
 import { formatApproximateMinutes } from "../utils/formatDuration";
-import type { RoomDeckSnapshot } from "../utils/gamePlan";
+import type { CompetitionStyle } from "../types/game";
+import type { HostParticipation, RoomDeckSnapshot } from "../utils/gamePlan";
 import "./GameSetupSummary.css";
 
 interface GameSetupSummaryProps {
   deckSnapshot: RoomDeckSnapshot | null;
+  competitionStyle: CompetitionStyle;
+}
+
+/** Shared by every branch below - never shown during Invite (callers only render this component from Setup onward). */
+function CompetitionAndHostLines({
+  competitionStyle,
+  hostParticipation,
+}: {
+  competitionStyle: CompetitionStyle;
+  hostParticipation: HostParticipation;
+}) {
+  return (
+    <p className="game-setup-summary-status">
+      Competition: {competitionStyle === "team" ? "Teams" : "Solo"} · Host:{" "}
+      {hostParticipation === "playing_host" ? "Playing" : "Dedicated Host"}
+    </p>
+  );
 }
 
 /**
- * The read-only lineup Players and the Stage see while the Host is
- * still setting up (or reusing a locked rematch plan) in the Lobby.
+ * The read-only lineup Players and the Stage see from the Game Setup
+ * stage onward (never during Invite - see PlayerRoomPage/StagePage,
+ * which only render this once the Host has moved past Invite).
  * Deliberately shows only what's safe before the game starts: Deck
- * names in order, how many Questions each contributes, and the overall
- * total/estimate - never correct answers, accepted variants, points,
- * which Questions are incomplete, or the per-section second-by-second
- * allocation math the Host's own setup panel works with.
+ * names in order, how many Questions each contributes, the overall
+ * total/estimate, competition style, and Host Participation - never
+ * correct answers, accepted variants, points, which Questions are
+ * incomplete, or the per-section second-by-second allocation math the
+ * Host's own setup panel works with. The final "ready"/"still setting
+ * up" line reflects the room's own `status` field, so it can never
+ * drift from what the Host's Confirm Setup button actually did.
  */
-function GameSetupSummary({ deckSnapshot }: GameSetupSummaryProps) {
+function GameSetupSummary({ deckSnapshot, competitionStyle }: GameSetupSummaryProps) {
   if (deckSnapshot === null) {
     return (
       <div className="game-setup-summary">
@@ -25,12 +47,36 @@ function GameSetupSummary({ deckSnapshot }: GameSetupSummaryProps) {
   }
 
   if (deckSnapshot.kind === "planned_game") {
+    const isReady = deckSnapshot.status === "ready";
+    const readinessLine = (
+      <p className="game-setup-summary-status" role="status">
+        {isReady ? "Everything is ready. Waiting for the Host to start." : "The Host is setting up the game."}
+      </p>
+    );
+
+    if (deckSnapshot.isQuickPlay) {
+      return (
+        <div className="game-setup-summary">
+          <p className="game-setup-summary-status">Playing the built-in sample Questions.</p>
+          <CompetitionAndHostLines
+            competitionStyle={competitionStyle}
+            hostParticipation={deckSnapshot.hostParticipation}
+          />
+          {readinessLine}
+        </div>
+      );
+    }
+
     if (deckSnapshot.selectedDeckIds.length === 0) {
       return (
         <div className="game-setup-summary">
           <p className="game-setup-summary-status" role="status">
             The Host is choosing tonight&rsquo;s trivia.
           </p>
+          <CompetitionAndHostLines
+            competitionStyle={competitionStyle}
+            hostParticipation={deckSnapshot.hostParticipation}
+          />
         </div>
       );
     }
@@ -42,6 +88,10 @@ function GameSetupSummary({ deckSnapshot }: GameSetupSummaryProps) {
           <p className="game-setup-summary-status" role="status">
             The Host is still setting up the game.
           </p>
+          <CompetitionAndHostLines
+            competitionStyle={competitionStyle}
+            hostParticipation={deckSnapshot.hostParticipation}
+          />
         </div>
       );
     }
@@ -60,9 +110,8 @@ function GameSetupSummary({ deckSnapshot }: GameSetupSummaryProps) {
           {planSummary.deckCount} Deck{planSummary.deckCount === 1 ? "" : "s"} · {planSummary.questionCount} Question
           {planSummary.questionCount === 1 ? "" : "s"} · {formatApproximateMinutes(planSummary.estimatedDurationSeconds)}
         </p>
-        <p className="game-setup-summary-status" role="status">
-          Everything is ready. Waiting for the Host to start.
-        </p>
+        <CompetitionAndHostLines competitionStyle={competitionStyle} hostParticipation={deckSnapshot.hostParticipation} />
+        {readinessLine}
       </div>
     );
   }
@@ -86,6 +135,7 @@ function GameSetupSummary({ deckSnapshot }: GameSetupSummaryProps) {
         {deckSnapshot.questions.length} Question{deckSnapshot.questions.length === 1 ? "" : "s"} ·{" "}
         {formatApproximateMinutes(deckSnapshot.estimatedDurationSeconds)}
       </p>
+      <CompetitionAndHostLines competitionStyle={competitionStyle} hostParticipation={deckSnapshot.hostParticipation} />
     </div>
   );
 }

@@ -8,7 +8,7 @@ import { useGameRoom } from "../hooks/useGameRoom";
 import { useAutosaveController, type SaveStatus } from "../hooks/useAutosaveController";
 import { getNextQuestionId, getQuestionById, type Question, type TypedAnswerQuestion } from "../data/questions";
 import { computeAggregateReveal, computeWinners } from "../utils/scoring";
-import { findSectionForQuestion, type RoomDeckSnapshot } from "../utils/gamePlan";
+import { findSectionForQuestion, type HostParticipation, type RoomDeckSnapshot } from "../utils/gamePlan";
 import { formatApproximateMinutes } from "../utils/formatDuration";
 import { buildJoinUrl, buildStageUrl } from "../utils/roomLinks";
 import { fetchDecksWithQuestions } from "../services/deckRepository";
@@ -73,8 +73,13 @@ function HostControlPanelPage() {
     teamAnswers,
     questionList,
     teamReadinessProblem,
+    lobbyStage,
     setCompetitionStyle,
     updateRoomSetup,
+    setHostParticipation,
+    advanceToSetup,
+    confirmSetup,
+    editSetup,
     startGame,
     revealAnswer,
     advanceQuestion,
@@ -88,6 +93,12 @@ function HostControlPanelPage() {
   const [startError, setStartError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [busyReviewId, setBusyReviewId] = useState<string | null>(null);
+
+  // Shared by Continue / Confirm Setup / Edit Setup: the Host is only
+  // ever in one of these three stages at a time, so one busy/error pair
+  // is enough - never more than one of these buttons is visible at once.
+  const [stageBusy, setStageBusy] = useState(false);
+  const [stageError, setStageError] = useState<string | null>(null);
 
   // Every Deck the Host owns (in this browser), each with its full
   // Question list - the picker/readiness data GameSetupPanel needs.
@@ -174,6 +185,54 @@ function HostControlPanelPage() {
       }
     } finally {
       setStarting(false);
+    }
+  }
+
+  async function handleContinueToSetup() {
+    if (stageBusy) return;
+    setStageError(null);
+    setStageBusy(true);
+    try {
+      await advanceToSetup();
+    } catch (error) {
+      setStageError(error instanceof Error ? error.message : "Couldn't continue. Try again.");
+    } finally {
+      setStageBusy(false);
+    }
+  }
+
+  async function handleConfirmSetup() {
+    if (stageBusy) return;
+    setStageError(null);
+    setStageBusy(true);
+    try {
+      const result = await confirmSetup();
+      if (!result.ok) {
+        setStageError(result.error ?? "Couldn't confirm setup. Try again.");
+      }
+    } finally {
+      setStageBusy(false);
+    }
+  }
+
+  async function handleEditSetup() {
+    if (stageBusy) return;
+    setStageError(null);
+    setStageBusy(true);
+    try {
+      await editSetup();
+    } catch (error) {
+      setStageError(error instanceof Error ? error.message : "Couldn't edit setup. Try again.");
+    } finally {
+      setStageBusy(false);
+    }
+  }
+
+  async function handleSetHostParticipation(value: HostParticipation) {
+    try {
+      await setHostParticipation(value);
+    } catch (error) {
+      setStageError(error instanceof Error ? error.message : "Couldn't update Host Participation. Try again.");
     }
   }
 
@@ -273,19 +332,26 @@ function HostControlPanelPage() {
         </a>
       </div>
 
-      {room.phase === "lobby" && (
-        <LobbyPhase
+      {room.phase === "lobby" && lobbyStage === "invite" && (
+        <InviteLobbyPhase
+          joinedPlayers={joinedPlayers}
+          onContinue={() => void handleContinueToSetup()}
+          continuing={stageBusy}
+          continueError={stageError}
+        />
+      )}
+
+      {room.phase === "lobby" && lobbyStage === "setup" && room.deckSnapshot?.kind === "planned_game" && (
+        <GameSetupPhase
           competitionStyle={room.competitionStyle}
           onChangeStyle={(style) => void handleChangeStyle(style)}
           styleError={styleError}
           joinedPlayers={joinedPlayers}
           teams={teams}
           teamPlayers={scorablePlayers}
-          onStart={() => void handleStart()}
-          starting={starting}
-          startError={startError}
-          teamReadinessProblem={teamReadinessProblem}
           deckSnapshot={room.deckSnapshot}
+          hostParticipation={room.deckSnapshot.hostParticipation}
+          onSetHostParticipation={(value) => void handleSetHostParticipation(value)}
           availableDecks={availableDecks}
           setupSelectedDeckIds={setupSelectedDeckIds}
           setupTargetDurationSeconds={setupTargetDurationSeconds}
@@ -293,6 +359,25 @@ function HostControlPanelPage() {
           onChangeDuration={handleChangeDuration}
           setupStatus={setupAutosave.status}
           onRetrySetup={setupAutosave.retry}
+          onConfirm={() => void handleConfirmSetup()}
+          confirming={stageBusy}
+          confirmError={stageError}
+        />
+      )}
+
+      {room.phase === "lobby" && lobbyStage === "ready" && room.deckSnapshot && (
+        <ReadyLobbyPhase
+          competitionStyle={room.competitionStyle}
+          joinedPlayers={joinedPlayers}
+          teams={teams}
+          teamPlayers={scorablePlayers}
+          deckSnapshot={room.deckSnapshot}
+          teamReadinessProblem={teamReadinessProblem}
+          onStart={() => void handleStart()}
+          starting={starting}
+          startError={startError}
+          onEditSetup={() => void handleEditSetup()}
+          editingBusy={stageBusy}
         />
       )}
 
@@ -423,18 +508,97 @@ function RematchSummary({ plan }: { plan: Extract<RoomDeckSnapshot, { kind: "gam
   );
 }
 
-function LobbyPhase({
+/**
+ * Stage 1 - just getting people connected. Deliberately shows no game
+ * settings at all (not even the Competition Style picker) - that's
+ * Game Setup's job. Continue is always available, even with zero
+ * Players, so the Host can test alone; its label softens to
+ * "Continue Anyway" in that case as a small honesty nudge, not a block.
+ */
+function InviteLobbyPhase({
+  joinedPlayers,
+  onContinue,
+  continuing,
+  continueError,
+}: {
+  joinedPlayers: RoomPlayer[];
+  onContinue: () => void;
+  continuing: boolean;
+  continueError: string | null;
+}) {
+  const continueLabel = joinedPlayers.length === 0 ? "Continue Anyway" : "Continue";
+
+  return (
+    <div className="host-phase card">
+      <p className="host-phase-label">Invite Lobby</p>
+      <h2>
+        {joinedPlayers.length === 0
+          ? "Waiting for players..."
+          : `${joinedPlayers.length} player${joinedPlayers.length === 1 ? "" : "s"} joined`}
+      </h2>
+      <PlayerList players={joinedPlayers} emptyMessage="Waiting for players to join..." />
+      {continueError && (
+        <p className="host-style-note" role="alert">
+          {continueError}
+        </p>
+      )}
+      <button type="button" className="btn btn-primary" onClick={onContinue} disabled={continuing}>
+        {continuing ? "Continuing…" : continueLabel}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Values are architected around deck-ownership-aware scoring that isn't
+ * implemented yet (see HostParticipation's doc comment in gamePlan.ts) -
+ * this milestone only adds the field, its realtime sync, and this
+ * explanatory note.
+ */
+function HostParticipationToggle({
+  value,
+  onChange,
+}: {
+  value: HostParticipation;
+  onChange: (value: HostParticipation) => void;
+}) {
+  const isPlaying = value === "playing_host";
+  return (
+    <div className="host-lobby-setup card">
+      <h3>Host Participation</h3>
+      <label className="host-participation-toggle">
+        <input
+          type="checkbox"
+          checked={isPlaying}
+          onChange={(event) => onChange(event.target.checked ? "playing_host" : "host_only")}
+        />
+        {isPlaying ? "I'm Playing Too" : "Dedicated Host"}
+      </label>
+      {isPlaying && (
+        <p className="host-lobby-status">
+          Playing-host rules will depend on whether the host already knows the Deck answers.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Stage 2 - configuring the game now that people can already see the
+ * Invite Lobby happened. Everything here remains editable until Confirm
+ * Setup; Confirm is also the moment Competition Style and Deck/duration
+ * lock (see migration 0006), not Start Game.
+ */
+function GameSetupPhase({
   competitionStyle,
   onChangeStyle,
   styleError,
   joinedPlayers,
   teams,
   teamPlayers,
-  onStart,
-  starting,
-  startError,
-  teamReadinessProblem,
   deckSnapshot,
+  hostParticipation,
+  onSetHostParticipation,
   availableDecks,
   setupSelectedDeckIds,
   setupTargetDurationSeconds,
@@ -442,6 +606,9 @@ function LobbyPhase({
   onChangeDuration,
   setupStatus,
   onRetrySetup,
+  onConfirm,
+  confirming,
+  confirmError,
 }: {
   competitionStyle: CompetitionStyle;
   onChangeStyle: (style: CompetitionStyle) => void;
@@ -449,11 +616,9 @@ function LobbyPhase({
   joinedPlayers: RoomPlayer[];
   teams: TeamRecord[];
   teamPlayers: PlayerRecord[];
-  onStart: () => void;
-  starting: boolean;
-  startError: string | null;
-  teamReadinessProblem: string | null;
-  deckSnapshot: RoomDeckSnapshot | null;
+  deckSnapshot: Extract<RoomDeckSnapshot, { kind: "planned_game" }>;
+  hostParticipation: HostParticipation;
+  onSetHostParticipation: (value: HostParticipation) => void;
   availableDecks: DeckEntry[] | null;
   setupSelectedDeckIds: string[];
   setupTargetDurationSeconds: number;
@@ -461,28 +626,22 @@ function LobbyPhase({
   onChangeDuration: (targetDurationSeconds: number) => void;
   setupStatus: SaveStatus;
   onRetrySetup: () => void;
+  onConfirm: () => void;
+  confirming: boolean;
+  confirmError: string | null;
 }) {
-  const isRematch = deckSnapshot?.kind === "game_plan";
-  const isQuickPlay = deckSnapshot === null;
-  const isLiveSetup = deckSnapshot?.kind === "planned_game";
-
-  const deckSelectionBlocked = isLiveSetup && deckSnapshot.selectedDeckIds.length === 0;
-  const startBlockedReason =
+  const deckSelectionBlocked = !deckSnapshot.isQuickPlay && setupSelectedDeckIds.length === 0;
+  const confirmBlockedReason =
     setupStatus === "saving"
       ? "Saving the latest setup…"
-      : (teamReadinessProblem ?? (deckSelectionBlocked ? "Choose at least one Deck before starting." : null));
-
-  const startHint =
-    competitionStyle === "team"
-      ? teams.length === 0
-        ? "Waiting for teams to form..."
-        : teams.length === 1
-          ? "1 team joined. You can start now or wait for more players."
-          : `${teams.length} teams joined. Start whenever you're ready.`
-      : null;
+      : deckSelectionBlocked
+        ? "Choose at least one Deck before confirming setup."
+        : null;
 
   return (
-    <>
+    <div className="host-phase card">
+      <p className="host-phase-label">Game Setup</p>
+
       <CompetitionStylePicker value={competitionStyle} onChange={onChangeStyle} />
       {styleError && (
         <p className="host-style-note" role="alert">
@@ -501,19 +660,15 @@ function LobbyPhase({
         </div>
       )}
 
-      {isQuickPlay && (
+      {deckSnapshot.isQuickPlay ? (
         <div className="host-lobby-setup card">
           <h3>Quick Play</h3>
           <p className="host-lobby-status">Playing the built-in sample Questions.</p>
         </div>
-      )}
-
-      {isRematch && <RematchSummary plan={deckSnapshot} />}
-
-      {isLiveSetup && (
+      ) : (
         <div className="host-lobby-setup">
           <div className="host-lobby-setup-header">
-            <h3>Game Setup</h3>
+            <h3>Decks &amp; Duration</h3>
             <SetupSaveStatusBadge status={setupStatus} onRetry={onRetrySetup} />
           </div>
           {availableDecks === null ? (
@@ -538,10 +693,134 @@ function LobbyPhase({
         </div>
       )}
 
-      {startHint && <p className="host-answered-count">{startHint}</p>}
-      {isLiveSetup && !startBlockedReason && (
-        <p className="host-lobby-status">Starting locks this setup for everyone in the room.</p>
+      <HostParticipationToggle value={hostParticipation} onChange={onSetHostParticipation} />
+
+      {!confirmBlockedReason && (
+        <p className="host-lobby-status">Confirming locks this setup for everyone in the room.</p>
       )}
+      {confirmBlockedReason && (
+        <p className="host-style-note" role="alert">
+          {confirmBlockedReason}
+        </p>
+      )}
+      {confirmError && (
+        <p className="host-style-note" role="alert">
+          {confirmError}
+        </p>
+      )}
+      <button
+        type="button"
+        className="btn btn-primary"
+        onClick={onConfirm}
+        disabled={confirmBlockedReason !== null || confirming}
+      >
+        {confirming ? "Confirming…" : "Confirm Setup"}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Stage 3 - the final shared checkpoint. Handles both a freshly
+ * confirmed setup (`planned_game`, status "ready" - Edit Setup
+ * available) and a locked Play-Again rematch (`game_plan` - no Edit
+ * Setup, matching its pre-existing read-only behaviour).
+ */
+function ReadyLobbyPhase({
+  competitionStyle,
+  joinedPlayers,
+  teams,
+  teamPlayers,
+  deckSnapshot,
+  teamReadinessProblem,
+  onStart,
+  starting,
+  startError,
+  onEditSetup,
+  editingBusy,
+}: {
+  competitionStyle: CompetitionStyle;
+  joinedPlayers: RoomPlayer[];
+  teams: TeamRecord[];
+  teamPlayers: PlayerRecord[];
+  deckSnapshot: RoomDeckSnapshot;
+  teamReadinessProblem: string | null;
+  onStart: () => void;
+  starting: boolean;
+  startError: string | null;
+  onEditSetup: () => void;
+  editingBusy: boolean;
+}) {
+  const isRematch = deckSnapshot.kind === "game_plan";
+  const isQuickPlay = deckSnapshot.kind === "planned_game" && deckSnapshot.isQuickPlay;
+  const hostParticipation = deckSnapshot.hostParticipation;
+
+  const deckSelectionBlocked =
+    deckSnapshot.kind === "planned_game" && !deckSnapshot.isQuickPlay && deckSnapshot.selectedDeckIds.length === 0;
+  const startBlockedReason =
+    teamReadinessProblem ?? (deckSelectionBlocked ? "Choose at least one Deck before starting." : null);
+
+  return (
+    <div className="host-phase card">
+      <p className="host-phase-label">Ready Lobby</p>
+
+      {isRematch && <RematchSummary plan={deckSnapshot} />}
+
+      {!isRematch && isQuickPlay && (
+        <div className="host-lobby-setup card">
+          <h3>Quick Play</h3>
+          <p className="host-lobby-status">Playing the built-in sample Questions.</p>
+        </div>
+      )}
+
+      {!isRematch && !isQuickPlay && deckSnapshot.kind === "planned_game" && (
+        <div className="host-lobby-setup card">
+          <h3>Game Plan</h3>
+          <ul className="game-setup-panel-list">
+            {deckSnapshot.planSummary.sections.map((section, index) => (
+              <li key={section.deckId} className="game-setup-panel-item">
+                <span>
+                  {index + 1}. {section.deckTitle}
+                </span>
+                <span className="game-setup-panel-hint">
+                  {section.selectedQuestionCount} Question{section.selectedQuestionCount === 1 ? "" : "s"}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="host-lobby-status">
+            {deckSnapshot.planSummary.deckCount} Deck{deckSnapshot.planSummary.deckCount === 1 ? "" : "s"} ·{" "}
+            {deckSnapshot.planSummary.questionCount} Question
+            {deckSnapshot.planSummary.questionCount === 1 ? "" : "s"} ·{" "}
+            {formatApproximateMinutes(deckSnapshot.planSummary.estimatedDurationSeconds)}
+          </p>
+        </div>
+      )}
+
+      <p className="host-lobby-status">
+        Competition: <strong>{competitionStyle === "team" ? "Teams" : "Solo"}</strong>
+      </p>
+      <p className="host-lobby-status">
+        Host: <strong>{hostParticipation === "playing_host" ? "Playing" : "Dedicated Host"}</strong>
+      </p>
+
+      {competitionStyle === "team" ? (
+        <TeamRoster teams={teams} players={teamPlayers} />
+      ) : (
+        <div className="host-lobby-roster">
+          <h2>
+            {joinedPlayers.length} player{joinedPlayers.length === 1 ? "" : "s"} joined
+          </h2>
+          <PlayerList players={joinedPlayers} emptyMessage="Waiting for players to join..." />
+        </div>
+      )}
+
+      {!isRematch && (
+        <button type="button" className="btn btn-ghost" onClick={onEditSetup} disabled={editingBusy}>
+          {editingBusy ? "Unlocking…" : "Edit Setup"}
+        </button>
+      )}
+
       {startBlockedReason && (
         <p className="host-style-note" role="alert">
           {startBlockedReason}
@@ -560,7 +839,7 @@ function LobbyPhase({
       >
         {starting ? "Starting…" : isRematch ? "Start Rematch" : "Start Game"}
       </button>
-    </>
+    </div>
   );
 }
 

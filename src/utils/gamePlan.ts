@@ -9,6 +9,40 @@ import type { DeckQuestionRecord } from "../types/deck";
 
 const SNAPSHOT_VERSION = 1;
 
+/**
+ * Which of the three Host Lobby stages the room is currently in, while
+ * `phase` is still 'lobby': Invite (just getting people connected, no
+ * game settings shown), Setup (the Host is actively configuring the
+ * game, editable), or Ready (Setup has been confirmed - Deck selection,
+ * duration, and competition style are locked; only Start Game or Edit
+ * Setup remain). Lives on the `planned_game` shape below, not as a
+ * separate room column - see migration 0006 for why the DB-level
+ * competition-style lock reads this same field.
+ */
+export type LobbyStatus = "invite" | "setup" | "ready";
+
+/**
+ * Whether the Host is a dedicated, non-competing facilitator
+ * ("host_only") or intends to answer along with everyone else
+ * ("playing_host"). This milestone only introduces the field, its
+ * realtime sync, and its Setup/Ready display - it deliberately does not
+ * yet implement any ownership-aware scoring behaviour. The intended
+ * future rules (not implemented here):
+ *
+ *  1. Host plays a Deck they did NOT create: may eventually compete as
+ *     an official competitor like any Player - they don't already know
+ *     the answers. The private Host Dashboard must still never reveal
+ *     an unrevealed Question's correct answer any differently than it
+ *     does today.
+ *  2. Host plays a Deck they DID create (or otherwise already knows):
+ *     may eventually participate casually, but their score should be
+ *     excluded from official standings - they have an unfair
+ *     information advantage.
+ *  3. Automatically detecting which of the above applies (deck
+ *     ownership awareness) is future scope, not implemented now.
+ */
+export type HostParticipation = "host_only" | "playing_host";
+
 export interface GamePlanSection {
   deckId: string;
   deckTitle: string;
@@ -37,6 +71,8 @@ export interface GamePlan {
   estimatedDurationSeconds: number;
   sections: GamePlanSection[];
   questions: Question[];
+  /** Carried forward verbatim from the confirmed PlannedGame at Start Game - see HostParticipation above. */
+  hostParticipation: HostParticipation;
 }
 
 export interface PlannedGameSection {
@@ -64,18 +100,29 @@ export interface PlannedGamePlanSummary {
 /**
  * What the Host Lobby persists to rooms.deck_snapshot as soon as the
  * room is created, and updates on every setup change - Deck selection,
- * order, or target duration - while rooms.phase is still 'lobby'. A
- * Host refresh reads this back from the same authoritative row; every
- * connected Player and the Stage see the same updates over the same
- * realtime `rooms` subscription they already hold, with no new
- * plumbing. Start Game replaces this with a frozen GamePlan.
+ * order, target duration, or Host Participation - while rooms.phase is
+ * still 'lobby'. A Host refresh reads this back from the same
+ * authoritative row; every connected Player and the Stage see the same
+ * updates over the same realtime `rooms` subscription they already
+ * hold, with no new plumbing. Every room gets one of these the moment
+ * it's created (Quick Play included, via `isQuickPlay: true` - Quick
+ * Play never has Decks to pick, but it still moves through the same
+ * Invite/Setup/Ready stages so its Host Participation and competition
+ * style follow the same lock timing as a Custom Game). Start Game
+ * replaces this with a frozen GamePlan - except for Quick Play, whose
+ * "plan" is just the hardcoded sample Questions, so nothing needs
+ * freezing; its planned_game object is simply left in place with
+ * `status: "ready"`.
  */
 export interface PlannedGame {
   kind: "planned_game";
   version: typeof SNAPSHOT_VERSION;
+  isQuickPlay: boolean;
   targetDurationSeconds: number;
   selectedDeckIds: string[];
   planSummary: PlannedGamePlanSummary;
+  status: LobbyStatus;
+  hostParticipation: HostParticipation;
 }
 
 export type RoomDeckSnapshot = PlannedGame | GamePlan;
@@ -91,7 +138,23 @@ function isPlanSummaryShape(value: unknown): value is PlannedGamePlanSummary {
   );
 }
 
-/** Never crashes on malformed/unrecognized JSON - returns null so the caller can show a clear error instead. */
+function isLobbyStatus(value: unknown): value is LobbyStatus {
+  return value === "invite" || value === "setup" || value === "ready";
+}
+
+function isHostParticipation(value: unknown): value is HostParticipation {
+  return value === "host_only" || value === "playing_host";
+}
+
+/**
+ * Never crashes on malformed/unrecognized JSON - returns null so the
+ * caller can show a clear error instead. `status`/`hostParticipation`/
+ * `isQuickPlay` are read defensively with safe fallbacks rather than
+ * required, so a row written before these fields existed (or a
+ * hand-edited/corrupted one) is never rejected outright - it's just
+ * treated as an un-started, dedicated-host setup, which is always a
+ * safe (never wrongly-locked) default. See migration 0006.
+ */
 export function parseRoomDeckSnapshot(raw: unknown): RoomDeckSnapshot | null {
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Record<string, unknown>;
@@ -104,7 +167,17 @@ export function parseRoomDeckSnapshot(raw: unknown): RoomDeckSnapshot | null {
     value.selectedDeckIds.every((id) => typeof id === "string") &&
     isPlanSummaryShape(value.planSummary)
   ) {
-    return value as unknown as PlannedGame;
+    const plannedGame: PlannedGame = {
+      kind: "planned_game",
+      version: SNAPSHOT_VERSION,
+      isQuickPlay: value.isQuickPlay === true,
+      targetDurationSeconds: value.targetDurationSeconds,
+      selectedDeckIds: value.selectedDeckIds as string[],
+      planSummary: value.planSummary,
+      status: isLobbyStatus(value.status) ? value.status : "invite",
+      hostParticipation: isHostParticipation(value.hostParticipation) ? value.hostParticipation : "host_only",
+    };
+    return plannedGame;
   }
 
   if (
@@ -116,10 +189,35 @@ export function parseRoomDeckSnapshot(raw: unknown): RoomDeckSnapshot | null {
     Array.isArray(value.questions) &&
     value.questions.length > 0
   ) {
-    return value as unknown as GamePlan;
+    const gamePlan: GamePlan = {
+      kind: "game_plan",
+      version: SNAPSHOT_VERSION,
+      totalDurationSeconds: value.totalDurationSeconds,
+      estimatedDurationSeconds: value.estimatedDurationSeconds,
+      sections: value.sections as GamePlanSection[],
+      questions: value.questions as Question[],
+      hostParticipation: isHostParticipation(value.hostParticipation) ? value.hostParticipation : "host_only",
+    };
+    return gamePlan;
   }
 
   return null;
+}
+
+/**
+ * The single place that decides which of the three Host Lobby stages a
+ * room is currently in, while `phase` is still 'lobby'. A frozen
+ * `game_plan` present during the lobby phase only ever means a
+ * post-Play-Again rematch, whose setup is always locked/read-only - so
+ * it's always "ready", never "invite" or "setup". A `null` snapshot
+ * only happens for a legacy room from before this restructure; treating
+ * it as "invite" is the safest fallback (never skips a stage the Host
+ * hasn't actually seen).
+ */
+export function deriveLobbyStage(deckSnapshot: RoomDeckSnapshot | null): LobbyStatus {
+  if (!deckSnapshot) return "invite";
+  if (deckSnapshot.kind === "game_plan") return "ready";
+  return deckSnapshot.status;
 }
 
 export interface DeckPlanInput {
@@ -216,7 +314,18 @@ export interface GamePlanWarning {
  * below or above the target; warnings surface both cases rather than
  * silently mis-stating either.
  */
-export function computeGamePlan(decks: DeckPlanInput[], targetDurationSeconds: number): GamePlan {
+/**
+ * Deliberately omits `hostParticipation`: that field belongs to the Host's
+ * confirmed setup, not to this pure duration/Question-allocation
+ * calculation, and this function is called both by the real Start Game
+ * write (which does know the confirmed value and spreads it on top) and
+ * by the live, Question-content-free preview in computePlanSummary/
+ * GameSetupPanel (which doesn't need it at all).
+ */
+export function computeGamePlan(
+  decks: DeckPlanInput[],
+  targetDurationSeconds: number,
+): Omit<GamePlan, "hostParticipation"> {
   const totalBudgetSeconds = Math.round(targetDurationSeconds);
   const shares = splitIntegerSeconds(totalBudgetSeconds, decks.length);
 
@@ -301,7 +410,7 @@ export function computePlanSummary(decks: DeckPlanInput[], targetDurationSeconds
  * a Question id the plan doesn't recognize.
  */
 export function findSectionForQuestion(
-  plan: GamePlan,
+  plan: Omit<GamePlan, "hostParticipation">,
   questionId: string | null,
 ): { section: GamePlanSection; sectionNumber: number; totalSections: number } | null {
   if (!questionId) return null;
@@ -311,7 +420,7 @@ export function findSectionForQuestion(
 }
 
 /** Warnings are advisory, never blocking - the Host can continue with a shorter or longer game than requested. */
-export function computeGamePlanWarnings(plan: GamePlan): GamePlanWarning[] {
+export function computeGamePlanWarnings(plan: Omit<GamePlan, "hostParticipation">): GamePlanWarning[] {
   const targetSeconds = plan.totalDurationSeconds;
   const warnings: GamePlanWarning[] = [];
 

@@ -3,12 +3,13 @@ import {
   computeGamePlan,
   computeGamePlanWarnings,
   computePlanSummary,
+  deriveLobbyStage,
   findSectionForQuestion,
   parseRoomDeckSnapshot,
   selectQuestionsForBudget,
   validateDeckSelection,
 } from "./gamePlan";
-import type { DeckPlanInput } from "./gamePlan";
+import type { DeckPlanInput, PlannedGame } from "./gamePlan";
 import { MAX_DECKS_PER_GAME, QUESTION_SECONDS_ESTIMATE, SECTION_TRANSITION_SECONDS_ESTIMATE } from "../config/timingEstimates";
 import type { DeckQuestionRecord } from "../types/deck";
 
@@ -309,17 +310,42 @@ describe("parseRoomDeckSnapshot", () => {
     const raw = {
       kind: "planned_game",
       version: 1,
+      isQuickPlay: false,
       targetDurationSeconds: 1200,
       selectedDeckIds: ["a", "b"],
       planSummary: { deckCount: 2, questionCount: 5, estimatedDurationSeconds: 300, sections: [] },
+      status: "setup",
+      hostParticipation: "host_only",
     };
     expect(parseRoomDeckSnapshot(raw)).toEqual(raw);
   });
 
+  it("defaults isQuickPlay/status/hostParticipation for a planned_game missing them (pre-restructure row)", () => {
+    const raw = {
+      kind: "planned_game",
+      version: 1,
+      targetDurationSeconds: 1200,
+      selectedDeckIds: ["a", "b"],
+      planSummary: { deckCount: 2, questionCount: 5, estimatedDurationSeconds: 300, sections: [] },
+    };
+    expect(parseRoomDeckSnapshot(raw)).toEqual({
+      ...raw,
+      isQuickPlay: false,
+      status: "invite",
+      hostParticipation: "host_only",
+    });
+  });
+
   it("parses a valid game_plan object", () => {
     const decks: DeckPlanInput[] = [{ deckId: "d1", deckTitle: "Movies", questions: makeQuestions(3, "m") }];
-    const plan = computeGamePlan(decks, 600);
+    const plan = { ...computeGamePlan(decks, 600), hostParticipation: "playing_host" as const };
     expect(parseRoomDeckSnapshot(plan)).toEqual(plan);
+  });
+
+  it("defaults hostParticipation for a game_plan missing it (pre-restructure row)", () => {
+    const decks: DeckPlanInput[] = [{ deckId: "d1", deckTitle: "Movies", questions: makeQuestions(3, "m") }];
+    const plan = computeGamePlan(decks, 600);
+    expect(parseRoomDeckSnapshot(plan)).toEqual({ ...plan, hostParticipation: "host_only" });
   });
 
   it("returns null for null (Quick Play)", () => {
@@ -385,5 +411,36 @@ describe("parseRoomDeckSnapshot", () => {
         planSummary: { deckCount: 0, questionCount: 0, estimatedDurationSeconds: 0, sections: [] },
       }),
     ).toBeNull();
+  });
+});
+
+describe("deriveLobbyStage", () => {
+  function planAtStatus(status: "invite" | "setup" | "ready"): PlannedGame {
+    return {
+      kind: "planned_game",
+      version: 1,
+      isQuickPlay: false,
+      targetDurationSeconds: 1200,
+      selectedDeckIds: ["a"],
+      planSummary: { deckCount: 1, questionCount: 3, estimatedDurationSeconds: 200, sections: [] },
+      status,
+      hostParticipation: "host_only",
+    };
+  }
+
+  it("returns 'invite' for a legacy null snapshot", () => {
+    expect(deriveLobbyStage(null)).toBe("invite");
+  });
+
+  it("returns the planned_game's own status for each of invite/setup/ready", () => {
+    expect(deriveLobbyStage(planAtStatus("invite"))).toBe("invite");
+    expect(deriveLobbyStage(planAtStatus("setup"))).toBe("setup");
+    expect(deriveLobbyStage(planAtStatus("ready"))).toBe("ready");
+  });
+
+  it("always returns 'ready' for a frozen game_plan (a rematch Lobby is always locked)", () => {
+    const decks: DeckPlanInput[] = [{ deckId: "d1", deckTitle: "Movies", questions: makeQuestions(3, "m") }];
+    const plan = { ...computeGamePlan(decks, 600), hostParticipation: "host_only" as const };
+    expect(deriveLobbyStage(plan)).toBe("ready");
   });
 });
