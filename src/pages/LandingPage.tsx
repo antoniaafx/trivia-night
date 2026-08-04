@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Library, Presentation, Users } from "lucide-react";
 import { createHostedRoom } from "../services/hostFlow";
+import LoadingScreen from "../components/LoadingScreen";
 import "./LandingPage.css";
 
 /**
@@ -36,6 +37,10 @@ function LandingPage() {
     }
   }
 
+  if (hosting) {
+    return <LoadingScreen message="Creating your game…" />;
+  }
+
   return (
     <div className="landing">
       <motion.div
@@ -53,9 +58,9 @@ function LandingPage() {
         </p>
 
         <div className="landing-actions">
-          <button type="button" className="btn btn-primary" onClick={() => void handleHostGame()} disabled={hosting}>
+          <button type="button" className="btn btn-primary" onClick={() => void handleHostGame()}>
             <Presentation size={20} strokeWidth={2.25} />
-            {hosting ? "Creating room…" : "Host a Game"}
+            Host a Game
           </button>
           <Link to="/join" className="btn btn-secondary">
             <Users size={20} strokeWidth={2.25} />

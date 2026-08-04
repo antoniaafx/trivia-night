@@ -5,18 +5,28 @@
   flex-direction: column;
   background: var(--gradient-hero);
   position: relative;
-  /* Both axes explicitly, not just overflow-x: per the CSS Overflow
-     spec, setting only one axis to a non-"visible" value forces the
-     other to compute as "auto" instead of staying "visible" - which
-     silently turned this element into its own scrollable box (clipping
-     the decorative glow circles below, whose negative bottom offset
-     bleeds past the shell's edge, added ~140px of invisible internal
-     scroll with no visible scrollbar). Genuine page content that's
-     taller than 100dvh (Deck Library, Deck Editor, ...) is unaffected -
-     it's in normal flow, so the shell's box grows to fit it and the
-     browser scrolls the document exactly as it always did; only the
-     out-of-flow decorative bleed gets clipped here.  */
+  /* `clip`, not `hidden`: the decorative glow circles below bleed past
+     this box on purpose (negative offsets), and something needs to trim
+     that. `overflow: hidden` does the trim but has a side effect - per
+     the CSS Overflow spec it makes the element a *scroll container*
+     (scrollTop becomes settable, and the element becomes a valid target
+     for the browser's own "keep the activated control visible"
+     behavior on focus/click). That let real clicks silently scroll this
+     box internally, hiding the header above the viewport with no way
+     back (see git history for the full incident - a setInterval was
+     briefly used to fight this and was rejected as a workaround).
+     `overflow: clip` clips identically for painting purposes but is
+     explicitly defined to NOT create a scroll container, so there's
+     nothing here for that browser behavior to ever act on - the header
+     can't be pushed off through this element again, structurally, not
+     defensively. Genuine page content taller than 100dvh (Deck Library,
+     Deck Editor, ...) is unaffected: it's in normal flow, so this box
+     still grows to fit it and the *document* scrolls, exactly as
+     before. Old browsers without `clip` support (pre-2021 Chrome,
+     pre-2023 Firefox, pre-2022 Safari) fall back to `hidden` below,
+     regaining the original (harmless there) behavior. */
   overflow: hidden;
+  overflow: clip;
 }
 
 .app-shell::before,
