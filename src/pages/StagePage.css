@@ -25,6 +25,13 @@
   font-size: 1.1rem;
 }
 
+.stage-timer-expired {
+  font-family: var(--font-heading);
+  font-size: clamp(1.5rem, 4vw, 2.25rem);
+  letter-spacing: 0.08em;
+  color: var(--color-pink);
+}
+
 .stage-options {
   width: 100%;
   max-width: 640px;

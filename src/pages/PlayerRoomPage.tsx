@@ -3,15 +3,17 @@ import { Link, Navigate, useParams } from "react-router-dom";
 import { useClientId } from "../hooks/useClientId";
 import { useRoomChannel } from "../hooks/useRoomChannel";
 import { useGameRoom } from "../hooks/useGameRoom";
+import { useCountdown } from "../hooks/useCountdown";
 import { getQuestionById, type Question, type TypedAnswerQuestion } from "../data/questions";
-import { findSectionForQuestion } from "../utils/gamePlan";
+import { findSectionForQuestion, type QuestionFlow } from "../utils/gamePlan";
+import { formatCountdown } from "../utils/timer";
 import { computeWinners, validateTeamName } from "../utils/scoring";
 import PlayerList from "../components/PlayerList";
 import LoadingScreen from "../components/LoadingScreen";
 import CompetitorLeaderboard from "../components/CompetitorLeaderboard";
 import GameSetupSummary from "../components/GameSetupSummary";
 import type { RoomPlayer } from "../types/room";
-import type { CompetitionStyle, Competitor, GradingStatus, TeamRecord } from "../types/game";
+import type { CompetitionStyle, Competitor, GradingStatus, TeamRecord, TimerStatus } from "../types/game";
 import { playerToCompetitor, teamToCompetitor } from "../types/game";
 import "./PlayerRoomPage.css";
 
@@ -137,6 +139,15 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room?.phase, room?.competitionStyle]);
 
+  // Called unconditionally, before the early returns below, per the
+  // Rules of Hooks - `room` is safely optional-chained since it may
+  // still be null this early (loading, or not found).
+  const remainingSeconds = useCountdown(
+    room?.timerStatus ?? "not_started",
+    room?.timerStartedAt ?? null,
+    room?.timerRemainingSeconds ?? null,
+  );
+
   if (connectionStatus === "unconfigured" || presenceStatus === "unconfigured") {
     return (
       <div className="player-room">
@@ -188,6 +199,9 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
   const myCompetitorId = isTeamMode ? myTeamId : self.clientId;
   const unitLabel = isTeamMode ? "team" : "you";
   const hasTeam = !isTeamMode || myTeamId !== null;
+  const questionTimerSeconds = room.deckSnapshot?.questionTimerSeconds ?? null;
+  const questionFlow = room.deckSnapshot?.questionFlow ?? "host_controlled";
+  const answersLocked = room.timerStatus === "expired";
 
   return (
     <div className="player-room">
@@ -252,6 +266,15 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
           </>
         ))}
 
+      {room.phase === "question" && question && (
+        <QuestionTimerBanner
+          questionTimerSeconds={questionTimerSeconds}
+          questionFlow={questionFlow}
+          timerStatus={room.timerStatus}
+          remainingSeconds={remainingSeconds}
+        />
+      )}
+
       {room.phase === "question" &&
         question &&
         (question.answerMethod === "multiple_choice" ? (
@@ -260,6 +283,7 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
             sectionInfo={sectionInfo}
             isTeamMode={isTeamMode}
             hasTeam={hasTeam}
+            locked={answersLocked}
             selectedOptionId={isTeamMode ? myTeamAnswerOptionId : myAnswerOptionId}
             onSelect={(optionId) => void (isTeamMode ? submitTeamAnswer(optionId) : submitAnswer(optionId))}
           />
@@ -269,6 +293,7 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
             sectionInfo={sectionInfo}
             isTeamMode={isTeamMode}
             hasTeam={hasTeam}
+            locked={answersLocked}
             submittedText={isTeamMode ? myTeamTypedAnswerText : myTypedAnswerText}
             onSubmit={(text) => (isTeamMode ? submitTeamTypedAnswer(text) : submitTypedAnswer(text))}
           />
@@ -474,11 +499,61 @@ function SectionEyebrow({ sectionInfo }: { sectionInfo: PlayerSectionInfo | null
   );
 }
 
+/**
+ * Shown above the answer form for the duration of the Question phase -
+ * "Waiting for the Host to begin..." before a Host Controlled countdown
+ * starts (no countdown yet, but Players may still tap an answer early -
+ * see submitAnswer's guard, which only ever blocks on "expired"), the
+ * live countdown while running/paused, or the locked-out message once
+ * time's up. Renders nothing at all in No Timer mode.
+ */
+function QuestionTimerBanner({
+  questionTimerSeconds,
+  questionFlow,
+  timerStatus,
+  remainingSeconds,
+}: {
+  questionTimerSeconds: number | null;
+  questionFlow: QuestionFlow;
+  timerStatus: TimerStatus;
+  remainingSeconds: number | null;
+}) {
+  if (questionTimerSeconds === null) return null;
+
+  if (timerStatus === "expired") {
+    return (
+      <p className="player-room-status" role="status">
+        Time&rsquo;s up! Your answer has been locked.
+      </p>
+    );
+  }
+
+  if (questionFlow === "host_controlled" && timerStatus === "not_started") {
+    return (
+      <p className="player-room-status" role="status">
+        Waiting for the Host to begin...
+      </p>
+    );
+  }
+
+  if (remainingSeconds !== null) {
+    return (
+      <p className="player-room-status" role="status">
+        ⏱ {formatCountdown(remainingSeconds)}
+        {timerStatus === "paused" && " — Timer paused by Host."}
+      </p>
+    );
+  }
+
+  return null;
+}
+
 function QuestionAnswering({
   question,
   sectionInfo,
   isTeamMode,
   hasTeam,
+  locked,
   selectedOptionId,
   onSelect,
 }: {
@@ -486,6 +561,7 @@ function QuestionAnswering({
   sectionInfo: PlayerSectionInfo | null;
   isTeamMode: boolean;
   hasTeam: boolean;
+  locked: boolean;
   selectedOptionId: string | null;
   onSelect: (optionId: string) => void;
 }) {
@@ -510,6 +586,7 @@ function QuestionAnswering({
                   aria-checked={selected}
                   className={`player-option${selected ? " player-option-selected" : ""}`}
                   onClick={() => onSelect(option.id)}
+                  disabled={locked}
                 >
                   <span className="player-option-letter">{String.fromCharCode(65 + index)}</span>
                   {option.text}
@@ -539,6 +616,7 @@ function TypedAnswerQuestionPhase({
   sectionInfo,
   isTeamMode,
   hasTeam,
+  locked,
   submittedText,
   onSubmit,
 }: {
@@ -546,6 +624,7 @@ function TypedAnswerQuestionPhase({
   sectionInfo: PlayerSectionInfo | null;
   isTeamMode: boolean;
   hasTeam: boolean;
+  locked: boolean;
   submittedText: string | null;
   onSubmit: (text: string) => Promise<void>;
 }) {
@@ -556,7 +635,7 @@ function TypedAnswerQuestionPhase({
       {isTeamMode && !hasTeam ? (
         <p className="player-room-warning">You didn&rsquo;t join a team before the game started.</p>
       ) : (
-        <TypedAnswerInput isTeamMode={isTeamMode} submittedText={submittedText} onSubmit={onSubmit} />
+        <TypedAnswerInput isTeamMode={isTeamMode} locked={locked} submittedText={submittedText} onSubmit={onSubmit} />
       )}
     </div>
   );
@@ -578,10 +657,12 @@ function TypedAnswerQuestionPhase({
  */
 function TypedAnswerInput({
   isTeamMode,
+  locked,
   submittedText,
   onSubmit,
 }: {
   isTeamMode: boolean;
+  locked: boolean;
   submittedText: string | null;
   onSubmit: (text: string) => Promise<void>;
 }) {
@@ -621,14 +702,14 @@ function TypedAnswerInput({
           onChange={(event) => setDraft(event.target.value)}
           maxLength={TYPED_ANSWER_MAX_LENGTH}
           autoComplete="off"
-          disabled={busy}
+          disabled={busy || locked}
         />
         {error && (
           <p className="player-room-warning" role="alert">
             {error}
           </p>
         )}
-        <button type="submit" className="btn btn-primary" disabled={busy}>
+        <button type="submit" className="btn btn-primary" disabled={busy || locked}>
           Submit
         </button>
       </form>

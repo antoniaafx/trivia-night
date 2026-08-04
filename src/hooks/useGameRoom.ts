@@ -3,27 +3,32 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { FIRST_QUESTION_ID, getNextQuestionId, getQuestionById, QUESTIONS, type Question } from "../data/questions";
 import { computeWinners, isEventForCurrentInstance, isEventForCurrentQuestion } from "../utils/scoring";
 import { computeDeckReadiness } from "../utils/deckValidation";
-import { computeGamePlan, deriveLobbyStage, validateDeckSelection } from "../utils/gamePlan";
-import type { DeckPlanInput, HostParticipation, LobbyStatus, PlannedGame } from "../utils/gamePlan";
-import { GAME_DURATION_MINUTES_DEFAULT } from "../config/timingEstimates";
+import { computeGamePlan, deriveLobbyStage, QUESTION_FLOW_DEFAULT, validateDeckSelection } from "../utils/gamePlan";
+import type { DeckPlanInput, HostParticipation, LobbyStatus, PlannedGame, QuestionFlow } from "../utils/gamePlan";
+import { computeInitialTimerFields, computeRemainingSeconds } from "../utils/timer";
+import { QUESTION_TIMER_SECONDS_DEFAULT } from "../config/timingEstimates";
 import { playerToCompetitor, teamToCompetitor } from "../types/game";
 import {
   cleanupEmptyTeams,
   createTeam as createTeamRow,
   ensureRoomExists,
+  expireTimer as expireTimerRow,
   fetchAnswers,
   fetchPlayers,
   fetchRoom,
   fetchTeamAnswers,
   fetchTeams,
   mapRealtimeRoomRow,
+  pauseTimer as pauseTimerRow,
   resetRoomForNewGame,
+  resumeTimer as resumeTimerRow,
   revealAndScore,
   reviewAnswer as reviewAnswerRow,
   reviewTeamAnswer as reviewTeamAnswerRow,
   setCompetitionStyle as setCompetitionStyleRow,
   setPlayerTeam,
   setRoomDeckSnapshot,
+  startTimer as startTimerRow,
   submitAnswer as submitAnswerRow,
   submitTeamAnswer as submitTeamAnswerRow,
   submitTeamTypedAnswer as submitTeamTypedAnswerRow,
@@ -32,7 +37,7 @@ import {
   upsertPlayer,
 } from "../services/gameRoomRepository";
 import { fetchDeck, fetchDeckQuestions, markDeckHosted } from "../services/deckRepository";
-import { buildPlannedGame } from "../services/hostFlow";
+import { buildPlannedGame, saveQuestionTimerPreferences } from "../services/hostFlow";
 import { isSupabaseConfigured, supabase } from "../services/supabaseClient";
 import type {
   AnswerRecord,
@@ -87,22 +92,27 @@ interface UseGameRoomResult {
   joinTeam: (teamId: string) => Promise<void>;
   leaveTeam: () => Promise<void>;
   /**
-   * Persists a live Deck-selection/duration change made from inside the
-   * Host Lobby as the room's `planned_game` snapshot. Only valid during
-   * the Setup stage and only when no frozen Game Plan already exists for
+   * Persists a live Deck-selection change made from inside the Host
+   * Lobby as the room's `planned_game` snapshot. Only valid during the
+   * Setup stage and only when no frozen Game Plan already exists for
    * this room (a rematch Lobby's setup is locked/read-only) - rejects
    * otherwise so a stray call can never clobber a locked setup.
    */
-  updateRoomSetup: (selectedDeckIds: string[], targetDurationSeconds: number) => Promise<void>;
+  updateRoomSetup: (selectedDeckIds: string[]) => Promise<void>;
   /** Sets Host Participation ("host_only" | "playing_host") during the Setup stage. See gamePlan.ts's HostParticipation for the intended future rules this is architected for. */
   setHostParticipation: (value: HostParticipation) => Promise<void>;
+  /** Sets the Question Timer (seconds, or null for No Timer) during the Setup stage, and saves it as this browser's default for next time. */
+  setQuestionTimer: (questionTimerSeconds: number | null) => Promise<void>;
+  /** Sets Question Flow ("host_controlled" | "automatic") during the Setup stage, and saves it as this browser's default for next time. */
+  setQuestionFlow: (value: QuestionFlow) => Promise<void>;
   /** Invite -> Setup. Always available - the Host can move on with zero Players joined. */
   advanceToSetup: () => Promise<void>;
   /**
    * Setup -> Invite. Purely a view change - every Deck selection,
-   * duration, competition style, and Host Participation choice already
-   * made is preserved untouched (see patchPlannedGame). Not available
-   * for a locked rematch, which never shows an Invite screen at all.
+   * Question Timer, Question Flow, competition style, and Host
+   * Participation choice already made is preserved untouched (see
+   * patchPlannedGame). Not available for a locked rematch, which never
+   * shows an Invite screen at all.
    */
   returnToInvite: () => Promise<void>;
   /** Validates, freezes, and locks the final Game Plan, then starts gameplay - the one action that ends Game Setup. See migration 0007: this is also the moment competition style itself locks. */
@@ -112,6 +122,14 @@ interface UseGameRoomResult {
   submitTeamAnswer: (optionId: string) => Promise<void>;
   submitTeamTypedAnswer: (text: string) => Promise<void>;
   revealAnswer: () => Promise<void>;
+  /** Host Controlled only - begins the countdown for the current Question. No-op if a countdown is already running/paused/expired, or no timer is configured. */
+  startTimer: () => Promise<void>;
+  /** Freezes the countdown. Players may keep editing their answer while paused. */
+  pauseTimer: () => Promise<void>;
+  /** Continues a paused countdown from where it left off. */
+  resumeTimer: () => Promise<void>;
+  /** Host-only auto-expire watchdog hook - see HostControlPanelPage. Not intended to be called by Players or the Stage. */
+  expireTimer: () => Promise<void>;
   advanceQuestion: () => Promise<void>;
   reviewAnswer: (clientId: string, decision: "correct" | "incorrect") => Promise<void>;
   reviewTeamAnswer: (teamId: string, decision: "correct" | "incorrect") => Promise<void>;
@@ -431,17 +449,18 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
   );
 
   /**
-   * Persists a live Deck-selection/duration change to rooms.deck_snapshot
-   * as a `planned_game` (see hostFlow.buildPlannedGame). Unlike
+   * Persists a live Deck-selection change to rooms.deck_snapshot as a
+   * `planned_game` (see hostFlow.buildPlannedGame). Unlike
    * patchPlannedGame, this rebuilds the whole object (a Deck-selection
    * change needs a freshly recomputed planSummary, and `isQuickPlay`
    * itself is derived fresh from whether `selectedDeckIds` is empty -
-   * see buildPlannedGame) - so the room's *current* status/hostParticipation
-   * are explicitly read and passed through, or they'd silently reset to
+   * see buildPlannedGame) - so the room's *current*
+   * status/hostParticipation/questionTimerSeconds/questionFlow are
+   * explicitly read and passed through, or they'd silently reset to
    * their defaults.
    */
   const updateRoomSetup = useCallback(
-    async (selectedDeckIds: string[], targetDurationSeconds: number) => {
+    async (selectedDeckIds: string[]) => {
       if (!room) throw new Error("Room not loaded yet.");
       if (room.phase !== "lobby") {
         throw new Error("Setup can only change before the game starts.");
@@ -452,9 +471,11 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
       if (room.deckSnapshot.status !== "setup") {
         throw new Error("Setup can only change during the Game Setup stage.");
       }
-      const planned = await buildPlannedGame(selectedDeckIds, targetDurationSeconds, {
+      const planned = await buildPlannedGame(selectedDeckIds, {
         status: room.deckSnapshot.status,
         hostParticipation: room.deckSnapshot.hostParticipation,
+        questionTimerSeconds: room.deckSnapshot.questionTimerSeconds,
+        questionFlow: room.deckSnapshot.questionFlow,
       });
       await setRoomDeckSnapshot(roomCode, planned);
     },
@@ -468,6 +489,24 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
     [patchPlannedGame],
   );
 
+  const setQuestionTimer = useCallback(
+    async (questionTimerSeconds: number | null) => {
+      if (!room || room.deckSnapshot?.kind !== "planned_game") return;
+      await patchPlannedGame({ questionTimerSeconds });
+      saveQuestionTimerPreferences(questionTimerSeconds, room.deckSnapshot.questionFlow);
+    },
+    [room, patchPlannedGame],
+  );
+
+  const setQuestionFlow = useCallback(
+    async (value: QuestionFlow) => {
+      if (!room || room.deckSnapshot?.kind !== "planned_game") return;
+      await patchPlannedGame({ questionFlow: value });
+      saveQuestionTimerPreferences(room.deckSnapshot.questionTimerSeconds, value);
+    },
+    [room, patchPlannedGame],
+  );
+
   /**
    * Invite -> Setup. A legacy room from before this restructure (real
    * rooms created before migration 0006 hold `deckSnapshot === null`,
@@ -479,7 +518,7 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
   const advanceToSetup = useCallback(async () => {
     if (!room) throw new Error("Room not loaded yet.");
     if (room.deckSnapshot === null) {
-      const planned = await buildPlannedGame([], GAME_DURATION_MINUTES_DEFAULT * 60, { status: "setup" });
+      const planned = await buildPlannedGame([], { status: "setup" });
       await setRoomDeckSnapshot(roomCode, planned);
       return;
     }
@@ -489,10 +528,10 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
 
   /**
    * Setup -> Invite. Purely a view toggle - every field on the
-   * planned_game (selected Decks, duration, competition style,
-   * hostParticipation) is left exactly as it is; only `status` changes.
-   * Not available for a locked rematch (patchPlannedGame rejects when
-   * deckSnapshot.kind is "game_plan").
+   * planned_game (selected Decks, Question Timer, Question Flow,
+   * competition style, hostParticipation) is left exactly as it is;
+   * only `status` changes. Not available for a locked rematch
+   * (patchPlannedGame rejects when deckSnapshot.kind is "game_plan").
    */
   const returnToInvite = useCallback(async () => {
     await patchPlannedGame({ status: "invite" });
@@ -545,44 +584,52 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
   const startGame = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
     if (!room) return { ok: false, error: "Room not loaded yet." };
 
-    if (room.competitionStyle === "team") {
-      await cleanupEmptyTeams(roomCode);
-      // Re-fetched fresh here (rather than trusting the hook's own
-      // `players` state) since this is the authoritative gate that
-      // actually decides whether the game may start - it must not act on
-      // state that could be a moment stale relative to realtime.
-      const freshPlayers = await fetchPlayers(roomCode);
-      const unassignedCount = freshPlayers.filter((player) => !player.isHost && !player.teamId).length;
-      if (unassignedCount > 0) {
-        return {
-          ok: false,
-          error:
-            unassignedCount === 1
-              ? "1 Player still needs to choose a Team."
-              : `${unassignedCount} Players still need to choose a Team.`,
-        };
-      }
-    }
-
-    const snapshot = room.deckSnapshot;
-
-    if (snapshot?.kind === "game_plan") {
-      const ok = await transitionPhase(roomCode, room.phase, "question", {
-        current_question_id: snapshot.questions[0]?.id ?? null,
-      });
-      return ok;
-    }
-
-    if (snapshot?.kind === "planned_game") {
-      if (snapshot.isQuickPlay) {
-        return transitionPhase(roomCode, room.phase, "question", { current_question_id: FIRST_QUESTION_ID });
+    // Wraps the whole function, not just the Deck-fetching branch below -
+    // any write failure here (a schema mismatch, a network error) must
+    // surface to the Host as a visible error rather than an unhandled
+    // promise rejection that leaves Start Game looking like it silently
+    // did nothing.
+    try {
+      if (room.competitionStyle === "team") {
+        await cleanupEmptyTeams(roomCode);
+        // Re-fetched fresh here (rather than trusting the hook's own
+        // `players` state) since this is the authoritative gate that
+        // actually decides whether the game may start - it must not act on
+        // state that could be a moment stale relative to realtime.
+        const freshPlayers = await fetchPlayers(roomCode);
+        const unassignedCount = freshPlayers.filter((player) => !player.isHost && !player.teamId).length;
+        if (unassignedCount > 0) {
+          return {
+            ok: false,
+            error:
+              unassignedCount === 1
+                ? "1 Player still needs to choose a Team."
+                : `${unassignedCount} Players still need to choose a Team.`,
+          };
+        }
       }
 
-      if (snapshot.selectedDeckIds.length === 0) {
-        return { ok: false, error: "Choose at least one Deck before starting." };
+      const snapshot = room.deckSnapshot;
+
+      if (snapshot?.kind === "game_plan") {
+        return await transitionPhase(roomCode, room.phase, "question", {
+          current_question_id: snapshot.questions[0]?.id ?? null,
+          ...computeInitialTimerFields(snapshot.questionTimerSeconds, snapshot.questionFlow),
+        });
       }
 
-      try {
+      if (snapshot?.kind === "planned_game") {
+        if (snapshot.isQuickPlay) {
+          return await transitionPhase(roomCode, room.phase, "question", {
+            current_question_id: FIRST_QUESTION_ID,
+            ...computeInitialTimerFields(snapshot.questionTimerSeconds, snapshot.questionFlow),
+          });
+        }
+
+        if (snapshot.selectedDeckIds.length === 0) {
+          return { ok: false, error: "Choose at least one Deck before starting." };
+        }
+
         const deckInputs: DeckPlanInput[] = await Promise.all(
           snapshot.selectedDeckIds.map(async (deckId) => {
             const deck = await fetchDeck(deckId);
@@ -602,8 +649,10 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
         }
 
         const plan = {
-          ...computeGamePlan(deckInputs, snapshot.targetDurationSeconds),
+          ...computeGamePlan(deckInputs),
           hostParticipation: snapshot.hostParticipation,
+          questionTimerSeconds: snapshot.questionTimerSeconds,
+          questionFlow: snapshot.questionFlow,
         };
         const firstQuestionId = plan.questions[0]?.id ?? null;
         if (!firstQuestionId) {
@@ -613,6 +662,7 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
         const result = await transitionPhase(roomCode, room.phase, "question", {
           current_question_id: firstQuestionId,
           deck_snapshot: plan,
+          ...computeInitialTimerFields(snapshot.questionTimerSeconds, snapshot.questionFlow),
         });
 
         if (result.ok) {
@@ -622,18 +672,28 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
         }
 
         return result;
-      } catch (error) {
-        return { ok: false, error: error instanceof Error ? error.message : "Couldn't start the game. Try again." };
       }
-    }
 
-    // Legacy room from before this restructure (deckSnapshot null).
-    return transitionPhase(roomCode, room.phase, "question", { current_question_id: FIRST_QUESTION_ID });
+      // Legacy room from before this restructure (deckSnapshot null).
+      return await transitionPhase(roomCode, room.phase, "question", {
+        current_question_id: FIRST_QUESTION_ID,
+        ...computeInitialTimerFields(QUESTION_TIMER_SECONDS_DEFAULT, QUESTION_FLOW_DEFAULT),
+      });
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : "Couldn't start the game. Try again." };
+    }
   }, [roomCode, room]);
 
+  /**
+   * Once the countdown has actually expired, no further edits reach the
+   * DB at all - a locked answer stays locked even though `phase` itself
+   * doesn't change until the Host presses Reveal. Pausing is
+   * deliberately NOT gated here: Players may keep editing a paused
+   * answer, only "expired" locks it.
+   */
   const submitAnswer = useCallback(
     async (optionId: string) => {
-      if (!self || !room || room.phase !== "question" || !room.currentQuestionId) return;
+      if (!self || !room || room.phase !== "question" || !room.currentQuestionId || room.timerStatus === "expired") return;
       await submitAnswerRow(roomCode, room.gameInstanceId, room.currentQuestionId, self.clientId, optionId);
     },
     [roomCode, room, self],
@@ -641,7 +701,7 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
 
   const submitTypedAnswer = useCallback(
     async (text: string) => {
-      if (!self || !room || room.phase !== "question" || !room.currentQuestionId) return;
+      if (!self || !room || room.phase !== "question" || !room.currentQuestionId || room.timerStatus === "expired") return;
       const trimmed = text.trim();
       if (trimmed.length === 0) return;
       await submitTypedAnswerRow(roomCode, room.gameInstanceId, room.currentQuestionId, self.clientId, trimmed);
@@ -653,7 +713,8 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
 
   const submitTeamAnswer = useCallback(
     async (optionId: string) => {
-      if (!room || room.phase !== "question" || !room.currentQuestionId || !myTeamId) return;
+      if (!room || room.phase !== "question" || !room.currentQuestionId || !myTeamId || room.timerStatus === "expired")
+        return;
       await submitTeamAnswerRow(roomCode, room.gameInstanceId, room.currentQuestionId, myTeamId, optionId);
     },
     [roomCode, room, myTeamId],
@@ -661,7 +722,8 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
 
   const submitTeamTypedAnswer = useCallback(
     async (text: string) => {
-      if (!room || room.phase !== "question" || !room.currentQuestionId || !myTeamId) return;
+      if (!room || room.phase !== "question" || !room.currentQuestionId || !myTeamId || room.timerStatus === "expired")
+        return;
       const trimmed = text.trim();
       if (trimmed.length === 0) return;
       await submitTeamTypedAnswerRow(roomCode, room.gameInstanceId, room.currentQuestionId, myTeamId, trimmed);
@@ -669,18 +731,70 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
     [roomCode, room, myTeamId],
   );
 
+  /**
+   * Grading/scoring/phase all happen inside revealAndScore, as before;
+   * the one addition is a best-effort expireTimerRow call afterward -
+   * "the Host may reveal early: immediately stop the timer, lock all
+   * answers, proceed with normal Reveal." Its own `.eq("timer_status",
+   * "running")` guard makes this a safe no-op whenever the timer wasn't
+   * actually running (already expired, paused, not started, or no timer
+   * configured at all) - Reveal already blocks further submissions via
+   * the `phase !== "question"` check regardless of timer state.
+   */
   const revealAnswer = useCallback(async () => {
     if (!room || !room.currentQuestionId) return;
     const question = getQuestionById(questionList, room.currentQuestionId);
     if (!question) return;
     await revealAndScore(roomCode, room.gameInstanceId, room.currentQuestionId, room.competitionStyle, question);
+    await expireTimerRow(roomCode);
   }, [roomCode, room, questionList]);
+
+  const startTimer = useCallback(async () => {
+    if (!room || room.phase !== "question" || room.timerStatus !== "not_started" || room.timerRemainingSeconds === null)
+      return;
+    await startTimerRow(roomCode, room.timerRemainingSeconds);
+  }, [roomCode, room]);
+
+  const pauseTimer = useCallback(async () => {
+    if (!room || room.timerStatus !== "running") return;
+    const remaining = computeRemainingSeconds(room.timerStatus, room.timerStartedAt, room.timerRemainingSeconds, Date.now());
+    if (remaining === null) return;
+    await pauseTimerRow(roomCode, Math.ceil(remaining));
+  }, [roomCode, room]);
+
+  const resumeTimer = useCallback(async () => {
+    if (!room || room.timerStatus !== "paused") return;
+    await resumeTimerRow(roomCode);
+  }, [roomCode, room]);
+
+  /**
+   * Called only by the Host's own auto-expire watchdog (see
+   * HostControlPanelPage) once its locally computed countdown reaches
+   * zero while `timerStatus` is "running" - not by Players or the
+   * Stage, which are pure observers. `expireTimerRow`'s own
+   * `.eq("timer_status", "running")` guard makes a duplicate call (or
+   * one racing a manual Reveal, which also calls expireTimerRow) a safe
+   * no-op.
+   */
+  const expireTimer = useCallback(async () => {
+    if (!room || room.timerStatus !== "running") return;
+    await expireTimerRow(roomCode);
+  }, [roomCode, room]);
 
   const advanceQuestion = useCallback(async () => {
     if (!room) return;
     const nextQuestionId = getNextQuestionId(questionList, room.currentQuestionId);
     if (!nextQuestionId) return;
-    await transitionPhase(roomCode, "reveal", "question", { current_question_id: nextQuestionId });
+    // Both PlannedGame (Quick Play, which never freezes to a GamePlan)
+    // and GamePlan carry questionTimerSeconds/questionFlow, so this reads
+    // correctly from either snapshot kind - only a legacy null snapshot
+    // falls back to the built-in defaults.
+    const questionTimerSeconds = room.deckSnapshot?.questionTimerSeconds ?? QUESTION_TIMER_SECONDS_DEFAULT;
+    const questionFlow = room.deckSnapshot?.questionFlow ?? QUESTION_FLOW_DEFAULT;
+    await transitionPhase(roomCode, "reveal", "question", {
+      current_question_id: nextQuestionId,
+      ...computeInitialTimerFields(questionTimerSeconds, questionFlow),
+    });
   }, [roomCode, room, questionList]);
 
   const reviewAnswer = useCallback(
@@ -781,6 +895,8 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
     leaveTeam,
     updateRoomSetup,
     setHostParticipation,
+    setQuestionTimer,
+    setQuestionFlow,
     advanceToSetup,
     returnToInvite,
     startGame,
@@ -789,6 +905,10 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
     submitTeamAnswer,
     submitTeamTypedAnswer,
     revealAnswer,
+    startTimer,
+    pauseTimer,
+    resumeTimer,
+    expireTimer,
     advanceQuestion,
     reviewAnswer,
     reviewTeamAnswer,

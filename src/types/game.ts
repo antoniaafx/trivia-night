@@ -31,6 +31,28 @@ export function isPhaseTransitionAllowed(from: RoomPhase, to: RoomPhase): boolea
 
 export type CompetitionStyle = "solo" | "team";
 
+/**
+ * Where the current Question's countdown stands. Reset every time a new
+ * Question begins (Start Game's first Question, or advanceQuestion's
+ * next one) - see utils/timer.ts's computeInitialTimerFields. Only
+ * meaningful when the frozen Game Plan's `questionTimerSeconds` is not
+ * null; when there is no timer configured, this field exists but is
+ * simply never rendered or acted upon by any client.
+ *
+ *  - "not_started": Host Controlled flow, Question is showing, no
+ *    countdown yet - the Host hasn't pressed Start Timer.
+ *  - "running": the countdown is live. Every client derives the current
+ *    remaining seconds from `timerStartedAt`/`timerRemainingSeconds`
+ *    rather than trusting a synced decrementing number - see
+ *    utils/timer.ts.
+ *  - "paused": frozen at `timerRemainingSeconds`. Players may keep
+ *    editing their answer while paused - pausing never locks anything.
+ *  - "expired": the countdown reached zero (or the Host revealed early).
+ *    Answers are locked from this point on regardless of `phase`, which
+ *    only changes once the Host actually presses Reveal.
+ */
+export type TimerStatus = "not_started" | "running" | "paused" | "expired";
+
 /** The authoritative `rooms` row. */
 export interface RoomRecord {
   roomCode: string;
@@ -48,6 +70,11 @@ export interface RoomRecord {
    * Questions from once a game has actually begun. See utils/gamePlan.ts.
    */
   deckSnapshot: RoomDeckSnapshot | null;
+  timerStatus: TimerStatus;
+  /** Server timestamp the countdown last started/resumed at - null whenever `timerStatus` isn't "running". See utils/timer.ts. */
+  timerStartedAt: string | null;
+  /** null = no timer configured for this game. Otherwise the seconds-remaining baseline to count down from - see TimerStatus's doc comment. */
+  timerRemainingSeconds: number | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -13,6 +13,7 @@ import type {
   RoomRecord,
   TeamAnswerRecord,
   TeamRecord,
+  TimerStatus,
 } from "../types/game";
 
 /**
@@ -29,6 +30,9 @@ interface RoomRow {
   game_instance_id: string;
   winner_ids: string[];
   deck_snapshot: unknown;
+  timer_status: string;
+  timer_started_at: string | null;
+  timer_remaining_seconds: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -86,6 +90,9 @@ function mapRoomRow(row: RoomRow): RoomRecord {
     gameInstanceId: row.game_instance_id,
     winnerIds: row.winner_ids ?? [],
     deckSnapshot: parseRoomDeckSnapshot(row.deck_snapshot),
+    timerStatus: (row.timer_status as TimerStatus | undefined) ?? "not_started",
+    timerStartedAt: row.timer_started_at,
+    timerRemainingSeconds: row.timer_remaining_seconds,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -120,6 +127,20 @@ export function mapRealtimeRoomRow(row: Record<string, unknown>, previous: RoomR
     winnerIds: (row.winner_ids as string[] | undefined) ?? [],
     deckSnapshot:
       "deck_snapshot" in row ? parseRoomDeckSnapshot(row.deck_snapshot) : (previous?.deckSnapshot ?? null),
+    // Small scalar columns, never TOASTed, so unlike deck_snapshot they're
+    // never omitted from a realtime payload in practice - the same "in"
+    // check is used anyway (rather than `??`, which would wrongly treat
+    // a legitimate `null` value - e.g. No Timer's timer_remaining_seconds
+    // - as "missing" and fall back to a stale previous value) purely for
+    // defense-in-depth, with a safe default for the one real gap: the
+    // very first payload this client ever sees, before `previous` exists.
+    timerStatus: "timer_status" in row ? (row.timer_status as TimerStatus) : (previous?.timerStatus ?? "not_started"),
+    timerStartedAt:
+      "timer_started_at" in row ? (row.timer_started_at as string | null) : (previous?.timerStartedAt ?? null),
+    timerRemainingSeconds:
+      "timer_remaining_seconds" in row
+        ? (row.timer_remaining_seconds as number | null)
+        : (previous?.timerRemainingSeconds ?? null),
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };
@@ -577,6 +598,9 @@ export async function transitionPhase(
     game_instance_id: string;
     winner_ids: string[];
     deck_snapshot: RoomDeckSnapshot | null;
+    timer_status: TimerStatus;
+    timer_started_at: string | null;
+    timer_remaining_seconds: number | null;
   }> = {},
 ): Promise<{ ok: boolean }> {
   if (!isPhaseTransitionAllowed(fromPhase, toPhase)) {
@@ -588,6 +612,85 @@ export async function transitionPhase(
     .update({ phase: toPhase, ...extraFields, updated_at: new Date().toISOString() })
     .eq("room_code", roomCode)
     .eq("phase", fromPhase)
+    .select();
+
+  if (error) throw error;
+  return { ok: (data?.length ?? 0) > 0 };
+}
+
+/**
+ * The four Question Timer transitions - phase never changes for any of
+ * these (it stays "question" throughout), so they're plain updates, not
+ * transitionPhase calls. Each carries the same `.eq("timer_status", ...)`
+ * optimistic-concurrency guard transitionPhase uses for `phase`: if the
+ * status already moved on by the time the write lands (a double-click,
+ * or the Host's own auto-expire effect racing a manual Reveal), the
+ * update matches zero rows instead of clobbering newer state.
+ */
+export async function startTimer(roomCode: string, questionTimerSeconds: number): Promise<{ ok: boolean }> {
+  const { data, error } = await supabase
+    .from("rooms")
+    .update({
+      timer_status: "running",
+      timer_started_at: new Date().toISOString(),
+      timer_remaining_seconds: questionTimerSeconds,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("room_code", roomCode)
+    .eq("timer_status", "not_started")
+    .select();
+
+  if (error) throw error;
+  return { ok: (data?.length ?? 0) > 0 };
+}
+
+/** `remainingSeconds` is the caller's own computeRemainingSeconds() reading at the moment Pause was pressed - frozen here as the new baseline. */
+export async function pauseTimer(roomCode: string, remainingSeconds: number): Promise<{ ok: boolean }> {
+  const { data, error } = await supabase
+    .from("rooms")
+    .update({
+      timer_status: "paused",
+      timer_started_at: null,
+      timer_remaining_seconds: remainingSeconds,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("room_code", roomCode)
+    .eq("timer_status", "running")
+    .select();
+
+  if (error) throw error;
+  return { ok: (data?.length ?? 0) > 0 };
+}
+
+/** Resumes from the frozen `timer_remaining_seconds` a prior pauseTimer left in place - only `timer_started_at` moves, to "now". */
+export async function resumeTimer(roomCode: string): Promise<{ ok: boolean }> {
+  const { data, error } = await supabase
+    .from("rooms")
+    .update({
+      timer_status: "running",
+      timer_started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("room_code", roomCode)
+    .eq("timer_status", "paused")
+    .select();
+
+  if (error) throw error;
+  return { ok: (data?.length ?? 0) > 0 };
+}
+
+/** The Host's own auto-expire watchdog calls this once its locally computed countdown reaches zero - see HostControlPanelPage. */
+export async function expireTimer(roomCode: string): Promise<{ ok: boolean }> {
+  const { data, error } = await supabase
+    .from("rooms")
+    .update({
+      timer_status: "expired",
+      timer_started_at: null,
+      timer_remaining_seconds: 0,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("room_code", roomCode)
+    .eq("timer_status", "running")
     .select();
 
   if (error) throw error;

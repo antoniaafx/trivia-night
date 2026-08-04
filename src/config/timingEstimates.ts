@@ -1,30 +1,26 @@
 /**
- * The single place Question-timing estimates live, so Game Plan
- * allocation never scatters "how long does a Question take" through
- * components. These are deliberately rough, revisable-after-real-
- * testing estimates for the whole rhythm of one Question - reading,
- * discussion, submission, reveal, and the transition to the next one
- * - not just the raw answering time.
- *
- * The displayed/estimated total game duration represents Question time
- * plus a small fixed allowance for each Deck-to-Deck section
- * transition - not the final Leaderboard/Winner ceremony, which has no
- * fixed length of its own. This is a deliberate choice (see the
- * Milestone 5 report): the estimate is "approximately how long the
- * playable Question content takes," always shown with "approximately,"
- * never claimed to be second-perfect.
+ * Rough, revisable-after-real-testing per-Question time estimates, used
+ * only for the informational "~17 minutes" badge shown on a Deck in the
+ * Deck Library/Picker (see deckRepository.ts/DeckPicker.tsx) - a
+ * convenience for browsing content, not a scheduling input. There is no
+ * game-level duration calculation anywhere in the app: every selected
+ * Deck's Questions are all played, in order, and the only timer the
+ * Host configures is the per-Question Question Timer below.
  */
 export const QUESTION_SECONDS_ESTIMATE: Record<"multiple_choice" | "typed_answer", number> = {
   multiple_choice: 45,
   typed_answer: 60,
 };
 
-/** A small fixed allowance for the "Deck 2 of 3" beat between sections - not per-Question, only between sections. */
-export const SECTION_TRANSITION_SECONDS_ESTIMATE = 15;
-
-export const GAME_DURATION_MINUTES_MIN = 5;
-export const GAME_DURATION_MINUTES_MAX = 120;
-export const GAME_DURATION_MINUTES_DEFAULT = 30;
-export const GAME_DURATION_PRESETS_MINUTES = [10, 20, 30, 45, 60];
-
 export const MAX_DECKS_PER_GAME = 5;
+
+/**
+ * The Question Timer choices offered in Game Setup - how long Players
+ * get to answer each Question, applied uniformly to every Question in
+ * the game (never per-Deck, per-Round, or per-answer-method). `null`
+ * (offered as a separate "No Timer" option, not part of this array) is
+ * a distinct fourth-plus choice meaning no countdown exists at all -
+ * see utils/timer.ts and QuestionFlow's doc comment in utils/gamePlan.ts.
+ */
+export const QUESTION_TIMER_OPTIONS_SECONDS = [15, 30, 45, 60] as const;
+export const QUESTION_TIMER_SECONDS_DEFAULT = 30;

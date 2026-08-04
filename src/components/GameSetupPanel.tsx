@@ -1,12 +1,6 @@
-import { isQuestionComplete } from "../utils/deckValidation";
+import { QUESTION_TIMER_OPTIONS_SECONDS, MAX_DECKS_PER_GAME } from "../config/timingEstimates";
 import { computePlanSummary } from "../utils/gamePlan";
-import { formatApproximateMinutes } from "../utils/formatDuration";
-import {
-  GAME_DURATION_MINUTES_MAX,
-  GAME_DURATION_MINUTES_MIN,
-  GAME_DURATION_PRESETS_MINUTES,
-  MAX_DECKS_PER_GAME,
-} from "../config/timingEstimates";
+import type { QuestionFlow } from "../utils/gamePlan";
 import type { DeckQuestionRecord, DeckRecord } from "../types/deck";
 import "./GameSetupPanel.css";
 
@@ -18,42 +12,47 @@ export interface DeckEntry {
 interface GameSetupPanelProps {
   availableDecks: DeckEntry[];
   selectedDeckIds: string[];
-  targetDurationSeconds: number;
   onChangeSelection: (selectedDeckIds: string[]) => void;
-  onChangeDuration: (targetDurationSeconds: number) => void;
   /** Opens the DeckPicker overlay - browsing/adding Decks happens there, not inline here. See components/DeckPicker.tsx. */
   onOpenPicker: () => void;
+  questionTimerSeconds: number | null;
+  onChangeQuestionTimer: (questionTimerSeconds: number | null) => void;
+  questionFlow: QuestionFlow;
+  onChangeQuestionFlow: (value: QuestionFlow) => void;
 }
 
 /**
- * The live, editable Selected-Decks/duration summary embedded directly
- * in Game Setup - every change here calls straight back to the parent,
- * which persists it to rooms.deck_snapshot (see HostControlPanelPage).
+ * The live, editable Selected-Decks summary embedded directly in Game
+ * Setup - every change here calls straight back to the parent, which
+ * persists it to rooms.deck_snapshot (see HostControlPanelPage).
  * Browsing and adding Decks happens in the DeckPicker overlay (opened
  * via "+ Add Deck"); this component only shows what's already chosen
  * plus reordering/removal, so it stays compact even with many Decks
  * available. The plan summary shown here is computed locally, from the
  * same pure computePlanSummary the persisted write uses, so what the
  * Host sees can never drift from what actually gets saved.
+ *
+ * There is no game-length setting here at all: the game plays every
+ * Question from every selected Deck, in order - see gamePlan.ts's
+ * computeGamePlan. The only timer the Host configures is the
+ * per-Question Question Timer below, which applies uniformly to every
+ * Question in the game.
  */
 function GameSetupPanel({
   availableDecks,
   selectedDeckIds,
-  targetDurationSeconds,
   onChangeSelection,
-  onChangeDuration,
   onOpenPicker,
+  questionTimerSeconds,
+  onChangeQuestionTimer,
+  questionFlow,
+  onChangeQuestionFlow,
 }: GameSetupPanelProps) {
   const entryById = new Map(availableDecks.map((entry) => [entry.deck.id, entry]));
   const selectedEntries = selectedDeckIds.map((id) => entryById.get(id)).filter((e): e is DeckEntry => e !== undefined);
 
   const planSummary = computePlanSummary(
-    selectedEntries.map(({ deck, questions }) => ({
-      deckId: deck.id,
-      deckTitle: deck.title,
-      questions: questions.filter(isQuestionComplete),
-    })),
-    targetDurationSeconds,
+    selectedEntries.map(({ deck, questions }) => ({ deckId: deck.id, deckTitle: deck.title, questions })),
   );
 
   function handleRemove(deckId: string) {
@@ -70,14 +69,6 @@ function GameSetupPanel({
     next[swapIndex] = temp;
     onChangeSelection(next);
   }
-
-  function handleDurationChange(value: number) {
-    if (Number.isNaN(value)) return;
-    const clampedMinutes = Math.min(GAME_DURATION_MINUTES_MAX, Math.max(GAME_DURATION_MINUTES_MIN, value));
-    onChangeDuration(clampedMinutes * 60);
-  }
-
-  const durationMinutes = Math.round(targetDurationSeconds / 60);
 
   return (
     <div className="game-setup-panel">
@@ -100,8 +91,7 @@ function GameSetupPanel({
                     <span>{deck.title}</span>
                     <span className="game-setup-panel-hint">
                       {questions.length} available
-                      {section &&
-                        ` · ${section.selectedQuestionCount} selected · ${formatApproximateMinutes(section.estimatedSeconds)}`}
+                      {section && ` · ${section.selectedQuestionCount} selected`}
                     </span>
                   </div>
                   <div className="game-setup-panel-item-actions">
@@ -148,29 +138,57 @@ function GameSetupPanel({
       </div>
 
       <div className="game-setup-panel-section">
-        <h3>Target duration</h3>
-        <div className="game-setup-panel-presets">
-          {GAME_DURATION_PRESETS_MINUTES.map((preset) => (
-            <button
-              key={preset}
-              type="button"
-              className={`btn btn-ghost${durationMinutes === preset ? " game-setup-panel-preset-selected" : ""}`}
-              onClick={() => handleDurationChange(preset)}
-            >
-              {preset} min
-            </button>
+        <h3>Question Timer</h3>
+        <p className="game-setup-panel-hint">How long should Players have to answer each Question?</p>
+        <fieldset className="game-setup-panel-radio-group">
+          <legend className="sr-only-label">Question Timer</legend>
+          {QUESTION_TIMER_OPTIONS_SECONDS.map((seconds) => (
+            <label key={seconds}>
+              <input
+                type="radio"
+                name="question-timer"
+                checked={questionTimerSeconds === seconds}
+                onChange={() => onChangeQuestionTimer(seconds)}
+              />
+              {seconds} seconds
+            </label>
           ))}
-        </div>
-        <label htmlFor="setup-duration-input">Custom (minutes)</label>
-        <input
-          id="setup-duration-input"
-          type="number"
-          min={GAME_DURATION_MINUTES_MIN}
-          max={GAME_DURATION_MINUTES_MAX}
-          step={5}
-          value={durationMinutes}
-          onChange={(event) => handleDurationChange(Number(event.target.value))}
-        />
+          <label>
+            <input
+              type="radio"
+              name="question-timer"
+              checked={questionTimerSeconds === null}
+              onChange={() => onChangeQuestionTimer(null)}
+            />
+            No Timer
+          </label>
+        </fieldset>
+      </div>
+
+      <div className="game-setup-panel-section">
+        <h3>Question Flow</h3>
+        <p className="game-setup-panel-hint">How should each Question begin?</p>
+        <fieldset className="game-setup-panel-radio-group">
+          <legend className="sr-only-label">Question Flow</legend>
+          <label>
+            <input
+              type="radio"
+              name="question-flow"
+              checked={questionFlow === "host_controlled"}
+              onChange={() => onChangeQuestionFlow("host_controlled")}
+            />
+            Host Controlled
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="question-flow"
+              checked={questionFlow === "automatic"}
+              onChange={() => onChangeQuestionFlow("automatic")}
+            />
+            Automatic
+          </label>
+        </fieldset>
       </div>
 
       {selectedEntries.length > 0 && (
@@ -178,7 +196,7 @@ function GameSetupPanel({
           <h3>Game Plan</h3>
           <p>
             {planSummary.deckCount} Deck{planSummary.deckCount === 1 ? "" : "s"} · {planSummary.questionCount} Question
-            {planSummary.questionCount === 1 ? "" : "s"} · {formatApproximateMinutes(planSummary.estimatedDurationSeconds)}
+            {planSummary.questionCount === 1 ? "" : "s"}
           </p>
         </div>
       )}

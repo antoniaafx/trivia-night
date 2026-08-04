@@ -1,8 +1,10 @@
 import { Link, useParams } from "react-router-dom";
 import { useGameRoom } from "../hooks/useGameRoom";
+import { useCountdown } from "../hooks/useCountdown";
 import { getQuestionById, QUESTIONS } from "../data/questions";
 import { computeAggregateReveal, computeWinners } from "../utils/scoring";
 import { findSectionForQuestion } from "../utils/gamePlan";
+import { formatCountdown } from "../utils/timer";
 import LoadingScreen from "../components/LoadingScreen";
 import CompetitorLeaderboard from "../components/CompetitorLeaderboard";
 import GameSetupSummary from "../components/GameSetupSummary";
@@ -29,6 +31,14 @@ function StagePage() {
       roomCode,
       self: null,
     });
+
+  // Called unconditionally, before the early returns below, per the
+  // Rules of Hooks - `room` may still be null this early.
+  const remainingSeconds = useCountdown(
+    room?.timerStatus ?? "not_started",
+    room?.timerStartedAt ?? null,
+    room?.timerRemainingSeconds ?? null,
+  );
 
   if (connectionStatus === "unconfigured") {
     return (
@@ -59,6 +69,7 @@ function StagePage() {
   const question = getQuestionById(questionList, room.currentQuestionId);
   const sectionInfo =
     room.deckSnapshot?.kind === "game_plan" ? findSectionForQuestion(room.deckSnapshot, room.currentQuestionId) : null;
+  const questionTimerSeconds = room.deckSnapshot?.questionTimerSeconds ?? null;
   const isTeamMode = room.competitionStyle === "team";
   const scorablePlayers = players.filter((player) => !player.isHost);
   const competitors: Competitor[] = isTeamMode
@@ -111,6 +122,13 @@ function StagePage() {
                 </div>
               ))}
             </div>
+          )}
+          {questionTimerSeconds !== null && room.timerStatus === "expired" && <p className="stage-timer-expired">TIME&rsquo;S UP</p>}
+          {questionTimerSeconds !== null && room.timerStatus !== "expired" && remainingSeconds !== null && (
+            <p className="stage-status" role="status">
+              ⏱ {formatCountdown(remainingSeconds)}
+              {room.timerStatus === "paused" && " — Timer paused by Host"}
+            </p>
           )}
         </>
       )}

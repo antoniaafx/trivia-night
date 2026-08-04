@@ -17,11 +17,7 @@ import type { RoomRecord } from "../types/game";
 const samplePlan: GamePlan = {
   kind: "game_plan",
   version: 1,
-  totalDurationSeconds: 1020,
-  estimatedDurationSeconds: 1020,
-  sections: [
-    { deckId: "d1", deckTitle: "General Knowledge Showcase", allocatedSeconds: 1020, estimatedSeconds: 1020, questionIds: ["q1", "q2"] },
-  ],
+  sections: [{ deckId: "d1", deckTitle: "General Knowledge Showcase", questionIds: ["q1", "q2"] }],
   questions: [
     {
       id: "q1",
@@ -46,6 +42,8 @@ const samplePlan: GamePlan = {
     },
   ],
   hostParticipation: "host_only",
+  questionTimerSeconds: 30,
+  questionFlow: "host_controlled",
 };
 
 const previousRoom: RoomRecord = {
@@ -56,6 +54,9 @@ const previousRoom: RoomRecord = {
   gameInstanceId: "instance-1",
   winnerIds: [],
   deckSnapshot: samplePlan,
+  timerStatus: "running",
+  timerStartedAt: "2026-08-04T09:00:00.000Z",
+  timerRemainingSeconds: 30,
   createdAt: "2026-08-04T09:00:00.000Z",
   updatedAt: "2026-08-04T09:00:00.000Z",
 };
@@ -84,7 +85,7 @@ describe("mapRealtimeRoomRow", () => {
   });
 
   it("applies a present deck_snapshot value normally", () => {
-    const newPlan: GamePlan = { ...samplePlan, totalDurationSeconds: 2000 };
+    const newPlan: GamePlan = { ...samplePlan, questionTimerSeconds: 60 };
     const row = baseRow({ deck_snapshot: newPlan });
     const updated = mapRealtimeRoomRow(row, previousRoom);
 

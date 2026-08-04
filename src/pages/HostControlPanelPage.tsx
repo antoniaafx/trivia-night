@@ -6,10 +6,18 @@ import { useCreatorId } from "../hooks/useCreatorId";
 import { useRoomChannel } from "../hooks/useRoomChannel";
 import { useGameRoom } from "../hooks/useGameRoom";
 import { useAutosaveController, type SaveStatus } from "../hooks/useAutosaveController";
+import { useCountdown } from "../hooks/useCountdown";
+import { formatCountdown } from "../utils/timer";
 import { getNextQuestionId, getQuestionById, type Question, type TypedAnswerQuestion } from "../data/questions";
 import { computeAggregateReveal, computeWinners } from "../utils/scoring";
-import { findSectionForQuestion, type HostParticipation, type RoomDeckSnapshot } from "../utils/gamePlan";
-import { formatApproximateMinutes } from "../utils/formatDuration";
+import {
+  findSectionForQuestion,
+  QUESTION_FLOW_DEFAULT,
+  type HostParticipation,
+  type QuestionFlow,
+  type RoomDeckSnapshot,
+} from "../utils/gamePlan";
+import { QUESTION_TIMER_SECONDS_DEFAULT } from "../config/timingEstimates";
 import { buildJoinUrl, buildStageUrl } from "../utils/roomLinks";
 import { fetchDecksWithQuestions } from "../services/deckRepository";
 import PlayerList from "../components/PlayerList";
@@ -25,6 +33,7 @@ import type {
   PlayerRecord,
   TeamAnswerRecord,
   TeamRecord,
+  TimerStatus,
 } from "../types/game";
 import { playerToCompetitor, teamToCompetitor } from "../types/game";
 import "./HostControlPanelPage.css";
@@ -78,10 +87,16 @@ function HostControlPanelPage() {
     setCompetitionStyle,
     updateRoomSetup,
     setHostParticipation,
+    setQuestionTimer,
+    setQuestionFlow,
     advanceToSetup,
     returnToInvite,
     startGame,
     revealAnswer,
+    startTimer,
+    pauseTimer,
+    resumeTimer,
+    expireTimer,
     advanceQuestion,
     reviewAnswer,
     reviewTeamAnswer,
@@ -129,30 +144,41 @@ function HostControlPanelPage() {
   // (the same pattern DeckEditorPage uses for its title field).
   const [setupInitialized, setSetupInitialized] = useState(false);
   const [setupSelectedDeckIds, setSetupSelectedDeckIds] = useState<string[]>([]);
-  const [setupTargetDurationSeconds, setSetupTargetDurationSeconds] = useState(30 * 60);
+  const [setupQuestionTimerSeconds, setSetupQuestionTimerSeconds] = useState<number | null>(
+    QUESTION_TIMER_SECONDS_DEFAULT,
+  );
+  const [setupQuestionFlow, setSetupQuestionFlow] = useState<QuestionFlow>(QUESTION_FLOW_DEFAULT);
   const setupAutosave = useAutosaveController();
 
   useEffect(() => {
     if (setupInitialized || !room) return;
     if (room.deckSnapshot?.kind === "planned_game") {
       setSetupSelectedDeckIds(room.deckSnapshot.selectedDeckIds);
-      setSetupTargetDurationSeconds(room.deckSnapshot.targetDurationSeconds);
+      setSetupQuestionTimerSeconds(room.deckSnapshot.questionTimerSeconds);
+      setSetupQuestionFlow(room.deckSnapshot.questionFlow);
     }
     setSetupInitialized(true);
   }, [room, setupInitialized]);
 
   function handleChangeSelection(nextIds: string[]) {
     setSetupSelectedDeckIds(nextIds);
-    void setupAutosave
-      .saveNow("room-setup", () => updateRoomSetup(nextIds, setupTargetDurationSeconds))
-      .catch(() => {
-        // Status badge already reflects the failure; Retry re-attempts this same write.
-      });
+    void setupAutosave.saveNow("room-setup", () => updateRoomSetup(nextIds)).catch(() => {
+      // Status badge already reflects the failure; Retry re-attempts this same write.
+    });
   }
 
-  function handleChangeDuration(nextSeconds: number) {
-    setSetupTargetDurationSeconds(nextSeconds);
-    setupAutosave.scheduleSave("room-setup", () => updateRoomSetup(setupSelectedDeckIds, nextSeconds));
+  function handleChangeQuestionTimer(value: number | null) {
+    setSetupQuestionTimerSeconds(value);
+    void setupAutosave.saveNow("room-setup", () => setQuestionTimer(value)).catch(() => {
+      // Status badge already reflects the failure; Retry re-attempts this same write.
+    });
+  }
+
+  function handleChangeQuestionFlow(value: QuestionFlow) {
+    setSetupQuestionFlow(value);
+    void setupAutosave.saveNow("room-setup", () => setQuestionFlow(value)).catch(() => {
+      // Status badge already reflects the failure; Retry re-attempts this same write.
+    });
   }
 
   const [styleError, setStyleError] = useState<string | null>(null);
@@ -209,6 +235,69 @@ function HostControlPanelPage() {
       setRevealing(false);
     }
   }
+
+  const [timerActionBusy, setTimerActionBusy] = useState(false);
+  const [timerActionError, setTimerActionError] = useState<string | null>(null);
+
+  async function handleStartTimer() {
+    if (timerActionBusy) return;
+    setTimerActionError(null);
+    setTimerActionBusy(true);
+    try {
+      await startTimer();
+    } catch (error) {
+      setTimerActionError(error instanceof Error ? error.message : "Couldn't start the timer. Try again.");
+    } finally {
+      setTimerActionBusy(false);
+    }
+  }
+
+  async function handlePauseTimer() {
+    if (timerActionBusy) return;
+    setTimerActionError(null);
+    setTimerActionBusy(true);
+    try {
+      await pauseTimer();
+    } catch (error) {
+      setTimerActionError(error instanceof Error ? error.message : "Couldn't pause the timer. Try again.");
+    } finally {
+      setTimerActionBusy(false);
+    }
+  }
+
+  async function handleResumeTimer() {
+    if (timerActionBusy) return;
+    setTimerActionError(null);
+    setTimerActionBusy(true);
+    try {
+      await resumeTimer();
+    } catch (error) {
+      setTimerActionError(error instanceof Error ? error.message : "Couldn't resume the timer. Try again.");
+    } finally {
+      setTimerActionBusy(false);
+    }
+  }
+
+  // The Host's own client is the sole driver of timer expiry - every
+  // other phase-affecting write in this app (Reveal, advanceQuestion,
+  // transitionPhase) is already Host-only, and Players/Stage are pure
+  // observers of room state. useCountdown ticks this component every
+  // second while the timer is running, anchored to the same server
+  // timestamp every client uses (see utils/timer.ts); once the locally
+  // computed remaining time reaches zero, this fires exactly one write
+  // (guarded server-side by expireTimer's own optimistic-concurrency
+  // check, so a race with a manual Reveal is harmless).
+  const liveRemainingSeconds = useCountdown(
+    room?.timerStatus ?? "not_started",
+    room?.timerStartedAt ?? null,
+    room?.timerRemainingSeconds ?? null,
+  );
+
+  useEffect(() => {
+    if (room?.phase !== "question" || room.timerStatus !== "running") return;
+    if (liveRemainingSeconds === null || liveRemainingSeconds > 0) return;
+    void expireTimer();
+  }, [room?.phase, room?.timerStatus, liveRemainingSeconds, expireTimer]);
 
   async function handleContinueToSetup() {
     if (stageBusy) return;
@@ -275,6 +364,9 @@ function HostControlPanelPage() {
   const question = getQuestionById(questionList, room.currentQuestionId);
   const sectionInfo =
     room.deckSnapshot?.kind === "game_plan" ? findSectionForQuestion(room.deckSnapshot, room.currentQuestionId) : null;
+  const questionNumber = questionList.findIndex((q) => q.id === room.currentQuestionId) + 1;
+  const questionTimerSeconds = room.deckSnapshot?.questionTimerSeconds ?? null;
+  const questionFlow = room.deckSnapshot?.questionFlow ?? QUESTION_FLOW_DEFAULT;
   const isTeamMode = room.competitionStyle === "team";
   const competitors: Competitor[] = isTeamMode
     ? teams.map(teamToCompetitor)
@@ -362,9 +454,11 @@ function HostControlPanelPage() {
           onSetHostParticipation={(value) => void handleSetHostParticipation(value)}
           availableDecks={availableDecks}
           setupSelectedDeckIds={setupSelectedDeckIds}
-          setupTargetDurationSeconds={setupTargetDurationSeconds}
           onChangeSelection={handleChangeSelection}
-          onChangeDuration={handleChangeDuration}
+          setupQuestionTimerSeconds={setupQuestionTimerSeconds}
+          onChangeQuestionTimer={handleChangeQuestionTimer}
+          setupQuestionFlow={setupQuestionFlow}
+          onChangeQuestionFlow={handleChangeQuestionFlow}
           setupStatus={setupAutosave.status}
           onRetrySetup={setupAutosave.retry}
           onReturnToInvite={() => void handleReturnToInvite()}
@@ -380,9 +474,20 @@ function HostControlPanelPage() {
         <QuestionPhase
           question={question}
           sectionInfo={sectionInfo}
+          questionNumber={questionNumber}
+          totalQuestions={questionList.length}
           answeredCount={gradedAnswers.length}
           totalCompetitors={totalCompetitors}
           unitLabel={unitLabel}
+          questionTimerSeconds={questionTimerSeconds}
+          questionFlow={questionFlow}
+          timerStatus={room.timerStatus}
+          remainingSeconds={liveRemainingSeconds}
+          onStartTimer={() => void handleStartTimer()}
+          onPauseTimer={() => void handlePauseTimer()}
+          onResumeTimer={() => void handleResumeTimer()}
+          timerActionBusy={timerActionBusy}
+          timerActionError={timerActionError}
           onReveal={() => void handleReveal()}
           revealing={revealing}
           revealError={revealError}
@@ -500,7 +605,7 @@ function RematchSummary({ plan }: { plan: Extract<RoomDeckSnapshot, { kind: "gam
     <div className="host-lobby-setup card">
       <h3>Game Plan (locked)</h3>
       <p className="host-lobby-status">
-        This rematch reuses the same Game Plan as before. To change Decks or duration, create a new room.
+        This rematch reuses the same Game Plan as before. To change Decks, create a new room.
       </p>
       <ul className="game-setup-panel-list">
         {plan.sections.map((section, index) => (
@@ -509,15 +614,13 @@ function RematchSummary({ plan }: { plan: Extract<RoomDeckSnapshot, { kind: "gam
               {index + 1}. {section.deckTitle}
             </span>
             <span className="game-setup-panel-hint">
-              {section.questionIds.length} Question{section.questionIds.length === 1 ? "" : "s"} ·{" "}
-              {formatApproximateMinutes(section.estimatedSeconds)}
+              {section.questionIds.length} Question{section.questionIds.length === 1 ? "" : "s"}
             </span>
           </li>
         ))}
       </ul>
       <p className="host-lobby-status">
-        {plan.questions.length} Question{plan.questions.length === 1 ? "" : "s"} ·{" "}
-        {formatApproximateMinutes(plan.estimatedDurationSeconds)}
+        {plan.questions.length} Question{plan.questions.length === 1 ? "" : "s"}
       </p>
     </div>
   );
@@ -602,13 +705,14 @@ function HostParticipationToggle({
  * Stage 2 - the only remaining pre-game stage, and the last stop before
  * gameplay: configuring the game (or, for a Play-Again rematch, just
  * reviewing the locked plan) while the player count and roster stay
- * visible the whole time. Everything here (Decks, duration, competition
- * style, Host Participation) remains live-editable right up until Start
- * Game is pressed - there is no separate confirmation checkpoint. Start
- * Game is what validates, freezes, and locks the final Game Plan (see
- * migration 0007 - that's also the moment competition style locks).
- * Back to Invite is a pure view toggle back to the QR screen; it never
- * touches anything already configured here.
+ * visible the whole time. Everything here (Decks, Question Timer,
+ * Question Flow, competition style, Host Participation) remains
+ * live-editable right up until Start Game is pressed - there is no
+ * separate confirmation checkpoint. Start Game is what validates,
+ * freezes, and locks the final Game Plan (see migration 0007 - that's
+ * also the moment competition style locks). Back to Invite is a pure
+ * view toggle back to the QR screen; it never touches anything already
+ * configured here.
  */
 function GameSetupPhase({
   competitionStyle,
@@ -622,9 +726,11 @@ function GameSetupPhase({
   onSetHostParticipation,
   availableDecks,
   setupSelectedDeckIds,
-  setupTargetDurationSeconds,
   onChangeSelection,
-  onChangeDuration,
+  setupQuestionTimerSeconds,
+  onChangeQuestionTimer,
+  setupQuestionFlow,
+  onChangeQuestionFlow,
   setupStatus,
   onRetrySetup,
   onReturnToInvite,
@@ -645,9 +751,11 @@ function GameSetupPhase({
   onSetHostParticipation: (value: HostParticipation) => void;
   availableDecks: DeckEntry[] | null;
   setupSelectedDeckIds: string[];
-  setupTargetDurationSeconds: number;
   onChangeSelection: (selectedDeckIds: string[]) => void;
-  onChangeDuration: (targetDurationSeconds: number) => void;
+  setupQuestionTimerSeconds: number | null;
+  onChangeQuestionTimer: (value: number | null) => void;
+  setupQuestionFlow: QuestionFlow;
+  onChangeQuestionFlow: (value: QuestionFlow) => void;
   setupStatus: SaveStatus;
   onRetrySetup: () => void;
   onReturnToInvite: () => void;
@@ -705,7 +813,7 @@ function GameSetupPhase({
 
           <div className="host-lobby-setup">
             <div className="host-lobby-setup-header">
-              <h3>Decks &amp; Duration</h3>
+              <h3>Decks</h3>
               <SetupSaveStatusBadge status={setupStatus} onRetry={onRetrySetup} />
             </div>
             {availableDecks === null ? (
@@ -714,10 +822,12 @@ function GameSetupPhase({
               <GameSetupPanel
                 availableDecks={availableDecks}
                 selectedDeckIds={setupSelectedDeckIds}
-                targetDurationSeconds={setupTargetDurationSeconds}
                 onChangeSelection={onChangeSelection}
-                onChangeDuration={onChangeDuration}
                 onOpenPicker={() => setPickerOpen(true)}
+                questionTimerSeconds={setupQuestionTimerSeconds}
+                onChangeQuestionTimer={onChangeQuestionTimer}
+                questionFlow={setupQuestionFlow}
+                onChangeQuestionFlow={onChangeQuestionFlow}
               />
             )}
           </div>
@@ -812,28 +922,52 @@ function TeamRoster({ teams, players }: { teams: TeamRecord[]; players: PlayerRe
 function QuestionPhase({
   question,
   sectionInfo,
+  questionNumber,
+  totalQuestions,
   answeredCount,
   totalCompetitors,
   unitLabel,
+  questionTimerSeconds,
+  questionFlow,
+  timerStatus,
+  remainingSeconds,
+  onStartTimer,
+  onPauseTimer,
+  onResumeTimer,
+  timerActionBusy,
+  timerActionError,
   onReveal,
   revealing,
   revealError,
 }: {
   question: Question;
   sectionInfo: { section: { deckTitle: string }; sectionNumber: number; totalSections: number } | null;
+  questionNumber: number;
+  totalQuestions: number;
   answeredCount: number;
   totalCompetitors: number;
   unitLabel: string;
+  questionTimerSeconds: number | null;
+  questionFlow: QuestionFlow;
+  timerStatus: TimerStatus;
+  remainingSeconds: number | null;
+  onStartTimer: () => void;
+  onPauseTimer: () => void;
+  onResumeTimer: () => void;
+  timerActionBusy: boolean;
+  timerActionError: string | null;
   onReveal: () => void;
   revealing: boolean;
   revealError: string | null;
 }) {
   const verb = question.answerMethod === "typed_answer" ? "submitted" : "answered";
+  const hasTimer = questionTimerSeconds !== null;
+  const unitPlural = totalCompetitors === 1 ? unitLabel : `${unitLabel}s`;
 
   return (
     <div className="host-phase card">
       <p className="host-phase-label">
-        Question
+        Question {questionNumber} of {totalQuestions}
         {sectionInfo &&
           ` — ${sectionInfo.section.deckTitle} — Deck ${sectionInfo.sectionNumber} of ${sectionInfo.totalSections}`}
       </p>
@@ -859,18 +993,48 @@ function QuestionPhase({
         </div>
       )}
 
-      <p className="host-answered-count">
-        {answeredCount} of {totalCompetitors} {unitLabel}
-        {totalCompetitors === 1 ? "" : "s"} {verb}
+      {/* A compact live readout of the state that actually matters for deciding whether to reveal now or wait. */}
+      <p className="host-question-status" role="status">
+        {hasTimer && remainingSeconds !== null && <span>⏱ {formatCountdown(remainingSeconds)}</span>}
+        <span>
+          👥 {answeredCount} / {totalCompetitors} {unitPlural} {verb}
+        </span>
       </p>
+
+      {hasTimer && timerStatus === "paused" && <p className="host-lobby-status">Timer paused by Host.</p>}
+      {hasTimer && timerStatus === "expired" && <p className="host-lobby-status">All answers locked.</p>}
+
+      {timerActionError && (
+        <p className="host-style-note" role="alert">
+          {timerActionError}
+        </p>
+      )}
       {revealError && (
         <p className="host-style-note" role="alert">
           {revealError}
         </p>
       )}
-      <button type="button" className="btn btn-primary" onClick={onReveal} disabled={revealing}>
-        {revealing ? "Revealing…" : "Reveal Answer"}
-      </button>
+
+      <div className="host-question-actions">
+        {hasTimer && timerStatus === "not_started" && questionFlow === "host_controlled" && (
+          <button type="button" className="btn btn-secondary" onClick={onStartTimer} disabled={timerActionBusy}>
+            {timerActionBusy ? "Starting…" : "Start Timer"}
+          </button>
+        )}
+        {hasTimer && timerStatus === "running" && (
+          <button type="button" className="btn btn-secondary" onClick={onPauseTimer} disabled={timerActionBusy}>
+            {timerActionBusy ? "Pausing…" : "Pause"}
+          </button>
+        )}
+        {hasTimer && timerStatus === "paused" && (
+          <button type="button" className="btn btn-secondary" onClick={onResumeTimer} disabled={timerActionBusy}>
+            {timerActionBusy ? "Resuming…" : "Resume"}
+          </button>
+        )}
+        <button type="button" className="btn btn-primary" onClick={onReveal} disabled={revealing}>
+          {revealing ? "Revealing…" : "Reveal Answer"}
+        </button>
+      </div>
     </div>
   );
 }

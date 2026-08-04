@@ -1,4 +1,3 @@
-import { formatApproximateMinutes } from "../utils/formatDuration";
 import type { CompetitionStyle } from "../types/game";
 import type { HostParticipation, RoomDeckSnapshot } from "../utils/gamePlan";
 import "./GameSetupSummary.css";
@@ -108,7 +107,7 @@ function GameSetupSummary({ deckSnapshot, competitionStyle }: GameSetupSummaryPr
         </ul>
         <p className="game-setup-summary-status">
           {planSummary.deckCount} Deck{planSummary.deckCount === 1 ? "" : "s"} · {planSummary.questionCount} Question
-          {planSummary.questionCount === 1 ? "" : "s"} · {formatApproximateMinutes(planSummary.estimatedDurationSeconds)}
+          {planSummary.questionCount === 1 ? "" : "s"}
         </p>
         <CompetitionAndHostLines competitionStyle={competitionStyle} hostParticipation={deckSnapshot.hostParticipation} />
         {readinessLine}
@@ -132,8 +131,7 @@ function GameSetupSummary({ deckSnapshot, competitionStyle }: GameSetupSummaryPr
       </ul>
       <p className="game-setup-summary-status">
         {deckSnapshot.sections.length} Deck{deckSnapshot.sections.length === 1 ? "" : "s"} ·{" "}
-        {deckSnapshot.questions.length} Question{deckSnapshot.questions.length === 1 ? "" : "s"} ·{" "}
-        {formatApproximateMinutes(deckSnapshot.estimatedDurationSeconds)}
+        {deckSnapshot.questions.length} Question{deckSnapshot.questions.length === 1 ? "" : "s"}
       </p>
       <CompetitionAndHostLines competitionStyle={competitionStyle} hostParticipation={deckSnapshot.hostParticipation} />
     </div>

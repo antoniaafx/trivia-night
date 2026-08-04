@@ -61,24 +61,27 @@
   flex-wrap: wrap;
 }
 
-.game-setup-panel-presets {
+.game-setup-panel-radio-group {
+  border: none;
+  padding: 0;
+  margin: 0;
   display: flex;
+  flex-direction: column;
   gap: 0.4rem;
-  flex-wrap: wrap;
 }
 
-.game-setup-panel-preset-selected {
-  border-color: var(--color-teal);
-  color: var(--color-teal);
+.game-setup-panel-radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-#setup-duration-input {
-  width: 7rem;
-  padding: 0.4rem 0.6rem;
-  border-radius: var(--radius-sm);
-  border: 2px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text);
+.sr-only-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
 }
 
 .game-setup-panel-summary {

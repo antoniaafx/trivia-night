@@ -82,6 +82,21 @@
   font-size: 1rem;
 }
 
+.host-question-status {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  color: var(--color-text-muted);
+  font-size: 1rem;
+  font-family: var(--font-heading);
+}
+
+.host-question-actions {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
 .host-typed-answer-key {
   width: 100%;
   text-align: left;
