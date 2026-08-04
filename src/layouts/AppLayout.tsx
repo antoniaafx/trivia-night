@@ -1,5 +1,6 @@
 import { Outlet, Link } from "react-router-dom";
 import ConfigWarning from "../components/ConfigWarning";
+import ErrorBoundary from "../components/ErrorBoundary";
 import "./AppLayout.css";
 
 function AppLayout() {
@@ -11,7 +12,9 @@ function AppLayout() {
         Trivia Night
       </Link>
       <main className="app-content">
-        <Outlet />
+        <ErrorBoundary>
+          <Outlet />
+        </ErrorBoundary>
       </main>
     </div>
   );

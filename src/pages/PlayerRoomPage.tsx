@@ -274,12 +274,24 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
           />
         ))}
 
+      {room.phase === "question" && !question && (
+        <p className="player-room-status" role="status">
+          Catching up with the current Question…
+        </p>
+      )}
+
       {room.phase === "reveal" && question && (
         <RevealResult
           question={question}
           isTeamMode={isTeamMode}
           gradingStatus={isTeamMode ? myTeamGradingStatus : myGradingStatus}
         />
+      )}
+
+      {room.phase === "reveal" && !question && (
+        <p className="player-room-status" role="status">
+          Catching up with the reveal…
+        </p>
       )}
 
       {room.phase === "leaderboard" && (

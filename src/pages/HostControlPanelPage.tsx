@@ -93,6 +93,8 @@ function HostControlPanelPage() {
   const [startError, setStartError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [busyReviewId, setBusyReviewId] = useState<string | null>(null);
+  const [revealing, setRevealing] = useState(false);
+  const [revealError, setRevealError] = useState<string | null>(null);
 
   // Shared by Continue / Back to Invite: the Host only ever sees one of
   // these two buttons at a time, so one busy/error pair is enough.
@@ -184,6 +186,27 @@ function HostControlPanelPage() {
       }
     } finally {
       setStarting(false);
+    }
+  }
+
+  /**
+   * revealAnswer grades every submission and writes scores before it
+   * ever flips `phase` to "reveal" (see revealAndScore's doc comment) -
+   * if grading fails partway, the write to `phase` never happens and
+   * the room stays validly in "question", so a failure here can never
+   * leave a half-updated reveal. What it previously couldn't do was
+   * tell the Host that happened: the button just silently did nothing.
+   */
+  async function handleReveal() {
+    if (revealing) return;
+    setRevealError(null);
+    setRevealing(true);
+    try {
+      await revealAnswer();
+    } catch (error) {
+      setRevealError(error instanceof Error ? error.message : "Couldn't reveal the answer. Try again.");
+    } finally {
+      setRevealing(false);
     }
   }
 
@@ -360,8 +383,19 @@ function HostControlPanelPage() {
           answeredCount={gradedAnswers.length}
           totalCompetitors={totalCompetitors}
           unitLabel={unitLabel}
-          onReveal={() => void revealAnswer()}
+          onReveal={() => void handleReveal()}
+          revealing={revealing}
+          revealError={revealError}
         />
+      )}
+
+      {room.phase === "question" && !question && (
+        <div className="host-phase card">
+          <p className="host-phase-label">Question</p>
+          <p className="host-lobby-status" role="status">
+            Catching up with the current Question…
+          </p>
+        </div>
       )}
 
       {room.phase === "reveal" && question && (
@@ -374,6 +408,15 @@ function HostControlPanelPage() {
           onContinue={() => void (nextQuestionId ? advanceQuestion() : showLeaderboard())}
           continueLabel={nextQuestionId ? "Continue to Next Question" : "Show Leaderboard"}
         />
+      )}
+
+      {room.phase === "reveal" && !question && (
+        <div className="host-phase card">
+          <p className="host-phase-label">Reveal</p>
+          <p className="host-lobby-status" role="status">
+            Catching up with the reveal…
+          </p>
+        </div>
       )}
 
       {room.phase === "leaderboard" && (
@@ -773,6 +816,8 @@ function QuestionPhase({
   totalCompetitors,
   unitLabel,
   onReveal,
+  revealing,
+  revealError,
 }: {
   question: Question;
   sectionInfo: { section: { deckTitle: string }; sectionNumber: number; totalSections: number } | null;
@@ -780,6 +825,8 @@ function QuestionPhase({
   totalCompetitors: number;
   unitLabel: string;
   onReveal: () => void;
+  revealing: boolean;
+  revealError: string | null;
 }) {
   const verb = question.answerMethod === "typed_answer" ? "submitted" : "answered";
 
@@ -816,8 +863,13 @@ function QuestionPhase({
         {answeredCount} of {totalCompetitors} {unitLabel}
         {totalCompetitors === 1 ? "" : "s"} {verb}
       </p>
-      <button type="button" className="btn btn-primary" onClick={onReveal}>
-        Reveal Answer
+      {revealError && (
+        <p className="host-style-note" role="alert">
+          {revealError}
+        </p>
+      )}
+      <button type="button" className="btn btn-primary" onClick={onReveal} disabled={revealing}>
+        {revealing ? "Revealing…" : "Reveal Answer"}
       </button>
     </div>
   );

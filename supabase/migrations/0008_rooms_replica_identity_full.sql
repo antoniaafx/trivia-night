@@ -1,0 +1,37 @@
+-- Trivia Night — fix blank-screen-on-Reveal production bug
+--
+-- ROOT CAUSE
+-- rooms.deck_snapshot holds the full frozen Game Plan (every Question in
+-- every selected Deck) as JSONB - large enough, once a real multi-Deck
+-- game is in progress, to get stored out-of-line by Postgres (TOAST).
+-- Reveal (see gameRoomRepository.ts's revealAndScore -> transitionPhase)
+-- updates only `phase` and `updated_at`; it never touches deck_snapshot.
+--
+-- By default a table's REPLICA IDENTITY is DEFAULT (primary key only),
+-- which tells Postgres's logical replication - the mechanism Supabase
+-- Realtime's postgres_changes rides on - that it's safe to omit a
+-- TOASTed column's value from the WAL entry for an UPDATE that didn't
+-- change that column. Every connected client (Host, every Player, the
+-- Stage) receives that same truncated row over realtime: the
+-- `deck_snapshot` key is simply absent, not null. The client code was
+-- treating "absent" the same as "no snapshot" and falling back to the
+-- hardcoded 2-question Quick Play sample, whose ids never match the
+-- real Deck's current_question_id - so getQuestionById found nothing,
+-- no phase-render branch matched, and Host/Player/Stage all rendered
+-- their empty wrapper div. A plain page refresh recovered because a
+-- fresh SELECT (not a replication event) always returns the complete
+-- row regardless of TOAST status - this is why the bug is specific to
+-- the realtime path, not the data itself.
+--
+-- FIX
+-- REPLICA IDENTITY FULL makes Postgres log the complete old and new row
+-- image for every UPDATE on this table, regardless of which columns
+-- changed or whether any of them are TOASTed. This is the standard,
+-- Supabase-documented fix for "large JSONB column goes missing in
+-- postgres_changes payloads." rooms sees at most a handful of updates
+-- per question during a single game, so the extra WAL volume is
+-- negligible - this is not the kind of table where FULL is a concern.
+--
+-- Idempotent: setting the same replica identity twice is a no-op.
+
+alter table public.rooms replica identity full;

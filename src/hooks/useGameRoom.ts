@@ -3,7 +3,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { FIRST_QUESTION_ID, getNextQuestionId, getQuestionById, QUESTIONS, type Question } from "../data/questions";
 import { computeWinners, isEventForCurrentInstance, isEventForCurrentQuestion } from "../utils/scoring";
 import { computeDeckReadiness } from "../utils/deckValidation";
-import { computeGamePlan, deriveLobbyStage, parseRoomDeckSnapshot, validateDeckSelection } from "../utils/gamePlan";
+import { computeGamePlan, deriveLobbyStage, validateDeckSelection } from "../utils/gamePlan";
 import type { DeckPlanInput, HostParticipation, LobbyStatus, PlannedGame } from "../utils/gamePlan";
 import { GAME_DURATION_MINUTES_DEFAULT } from "../config/timingEstimates";
 import { playerToCompetitor, teamToCompetitor } from "../types/game";
@@ -16,6 +16,7 @@ import {
   fetchRoom,
   fetchTeamAnswers,
   fetchTeams,
+  mapRealtimeRoomRow,
   resetRoomForNewGame,
   revealAndScore,
   reviewAnswer as reviewAnswerRow,
@@ -205,19 +206,8 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
       (payload) => {
         const row = payload.new as Record<string, unknown>;
         if (!row || Object.keys(row).length === 0) return;
-        const updated: RoomRecord = {
-          roomCode: row.room_code as string,
-          phase: row.phase as RoomRecord["phase"],
-          competitionStyle: row.competition_style as CompetitionStyle,
-          currentQuestionId: row.current_question_id as string | null,
-          gameInstanceId: row.game_instance_id as string,
-          winnerIds: (row.winner_ids as string[]) ?? [],
-          deckSnapshot: parseRoomDeckSnapshot(row.deck_snapshot),
-          createdAt: row.created_at as string,
-          updatedAt: row.updated_at as string,
-        };
 
-        gameInstanceIdRef.current = updated.gameInstanceId;
+        gameInstanceIdRef.current = row.game_instance_id as string;
 
         // The room has moved on to a different question (or back to
         // none, in lobby) - last question's answers no longer describe
@@ -225,13 +215,21 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
         // re-fetched: a freshly-started question has no answers yet, and
         // they'll arrive one at a time over this same subscription as
         // competitors submit.
-        if (updated.currentQuestionId !== currentQuestionIdRef.current) {
-          currentQuestionIdRef.current = updated.currentQuestionId;
+        const nextQuestionId = row.current_question_id as string | null;
+        if (nextQuestionId !== currentQuestionIdRef.current) {
+          currentQuestionIdRef.current = nextQuestionId;
           setAnswers([]);
           setTeamAnswers([]);
         }
 
-        setRoom(updated);
+        // mapRealtimeRoomRow (not a plain field-by-field mapping) is
+        // what protects deck_snapshot from being wiped out by a
+        // TOAST-omitted realtime payload - see its doc comment and
+        // migration 0008 for the full story. The functional setRoom
+        // form is required here (not the `room` closure variable) so
+        // the merge always sees the truly-latest previous snapshot, not
+        // a stale one captured when this subscription was created.
+        setRoom((previous) => mapRealtimeRoomRow(row, previous));
       },
     );
 

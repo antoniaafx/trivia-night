@@ -115,6 +115,12 @@ function StagePage() {
         </>
       )}
 
+      {room.phase === "question" && !question && (
+        <p className="stage-status" role="status">
+          Catching up with the current Question…
+        </p>
+      )}
+
       {room.phase === "reveal" && question && (
         <>
           <p className="stage-eyebrow">Reveal</p>
@@ -126,6 +132,12 @@ function StagePage() {
           </h1>
           <StageAggregate answers={isTeamMode ? teamAnswers : answers} />
         </>
+      )}
+
+      {room.phase === "reveal" && !question && (
+        <p className="stage-status" role="status">
+          Catching up with the reveal…
+        </p>
       )}
 
       {(room.phase === "leaderboard" || room.phase === "ended") && (

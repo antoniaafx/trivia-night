@@ -91,6 +91,40 @@ function mapRoomRow(row: RoomRow): RoomRecord {
   };
 }
 
+/**
+ * Builds a RoomRecord from a Realtime `postgres_changes` payload row -
+ * used instead of mapRoomRow specifically because this row did not come
+ * from a plain SELECT. A large TOASTed column an UPDATE left unchanged
+ * - `deck_snapshot` is exactly this once a real multi-Deck Game Plan is
+ * loaded - can be omitted from the WAL entry entirely by Postgres's
+ * logical replication (which postgres_changes rides on) when the
+ * table's REPLICA IDENTITY is DEFAULT, so the key can be legitimately
+ * *absent* from `row` even though the room still has a perfectly valid
+ * snapshot. Reveal is the clearest example: it only ever changes
+ * `phase`. Migration 0008 sets REPLICA IDENTITY FULL specifically to
+ * stop this at the source; this function is the client-side half of
+ * the same fix, kept as defense-in-depth for any Supabase project that
+ * hasn't run 0008, or any future column with the same TOAST potential.
+ * A key that's *present* with an explicit `null` value (a legacy
+ * pre-Deck-system room, or a fresh room before Start Game) is trusted
+ * and applied; only a genuinely missing key falls back to the
+ * previously known snapshot instead of wiping it out.
+ */
+export function mapRealtimeRoomRow(row: Record<string, unknown>, previous: RoomRecord | null): RoomRecord {
+  return {
+    roomCode: row.room_code as string,
+    phase: row.phase as RoomPhase,
+    competitionStyle: row.competition_style as CompetitionStyle,
+    currentQuestionId: row.current_question_id as string | null,
+    gameInstanceId: row.game_instance_id as string,
+    winnerIds: (row.winner_ids as string[] | undefined) ?? [],
+    deckSnapshot:
+      "deck_snapshot" in row ? parseRoomDeckSnapshot(row.deck_snapshot) : (previous?.deckSnapshot ?? null),
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+  };
+}
+
 function mapPlayerRow(row: PlayerRow): PlayerRecord {
   return {
     roomCode: row.room_code,
