@@ -16,6 +16,7 @@ import PlayerList from "../components/PlayerList";
 import LoadingScreen from "../components/LoadingScreen";
 import CompetitorLeaderboard from "../components/CompetitorLeaderboard";
 import GameSetupPanel, { type DeckEntry } from "../components/GameSetupPanel";
+import DeckPicker from "../components/DeckPicker";
 import type { RoomPlayer } from "../types/room";
 import type {
   AnswerRecord,
@@ -614,8 +615,8 @@ function GameSetupPhase({
   startError: string | null;
 }) {
   const isRematch = deckSnapshot.kind === "game_plan";
-  const isQuickPlay = deckSnapshot.kind === "planned_game" && deckSnapshot.isQuickPlay;
   const hostParticipation = deckSnapshot.hostParticipation;
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // An empty Deck selection is never blocked - it just means Quick Play
   // (the built-in sample Questions), which is always a valid, ready-to-
@@ -664,22 +665,8 @@ function GameSetupPhase({
               <h3>Decks &amp; Duration</h3>
               <SetupSaveStatusBadge status={setupStatus} onRetry={onRetrySetup} />
             </div>
-            {isQuickPlay && (
-              <p className="host-lobby-status">
-                Currently playing: the built-in sample Questions (Quick Play). Add a Deck below to play your own
-                instead.
-              </p>
-            )}
             {availableDecks === null ? (
               <p className="host-lobby-status">Loading your Decks...</p>
-            ) : availableDecks.length === 0 ? (
-              <p className="host-lobby-status">
-                You haven&rsquo;t created any Decks yet.{" "}
-                <a href="/decks" target="_blank" rel="noreferrer">
-                  Create one in My Decks
-                </a>{" "}
-                — this Lobby will stay open while you do.
-              </p>
             ) : (
               <GameSetupPanel
                 availableDecks={availableDecks}
@@ -687,11 +674,20 @@ function GameSetupPhase({
                 targetDurationSeconds={setupTargetDurationSeconds}
                 onChangeSelection={onChangeSelection}
                 onChangeDuration={onChangeDuration}
+                onOpenPicker={() => setPickerOpen(true)}
               />
             )}
           </div>
 
           <HostParticipationToggle value={hostParticipation} onChange={onSetHostParticipation} />
+
+          <DeckPicker
+            open={pickerOpen}
+            decks={availableDecks}
+            selectedDeckIds={setupSelectedDeckIds}
+            onChangeSelection={onChangeSelection}
+            onClose={() => setPickerOpen(false)}
+          />
         </>
       )}
 

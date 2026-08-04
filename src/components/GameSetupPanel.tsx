@@ -1,4 +1,4 @@
-import { computeDeckReadiness, isQuestionComplete } from "../utils/deckValidation";
+import { isQuestionComplete } from "../utils/deckValidation";
 import { computePlanSummary } from "../utils/gamePlan";
 import { formatApproximateMinutes } from "../utils/formatDuration";
 import {
@@ -21,15 +21,20 @@ interface GameSetupPanelProps {
   targetDurationSeconds: number;
   onChangeSelection: (selectedDeckIds: string[]) => void;
   onChangeDuration: (targetDurationSeconds: number) => void;
+  /** Opens the DeckPicker overlay - browsing/adding Decks happens there, not inline here. See components/DeckPicker.tsx. */
+  onOpenPicker: () => void;
 }
 
 /**
- * The live, editable Deck/duration picker embedded directly in the Host
- * Lobby - every change here calls straight back to the parent, which
- * persists it to rooms.deck_snapshot (see HostControlPanelPage). The
- * plan summary shown here is computed locally, from the same pure
- * computePlanSummary the persisted write uses, so what the Host sees
- * can never drift from what actually gets saved.
+ * The live, editable Selected-Decks/duration summary embedded directly
+ * in Game Setup - every change here calls straight back to the parent,
+ * which persists it to rooms.deck_snapshot (see HostControlPanelPage).
+ * Browsing and adding Decks happens in the DeckPicker overlay (opened
+ * via "+ Add Deck"); this component only shows what's already chosen
+ * plus reordering/removal, so it stays compact even with many Decks
+ * available. The plan summary shown here is computed locally, from the
+ * same pure computePlanSummary the persisted write uses, so what the
+ * Host sees can never drift from what actually gets saved.
  */
 function GameSetupPanel({
   availableDecks,
@@ -37,10 +42,9 @@ function GameSetupPanel({
   targetDurationSeconds,
   onChangeSelection,
   onChangeDuration,
+  onOpenPicker,
 }: GameSetupPanelProps) {
   const entryById = new Map(availableDecks.map((entry) => [entry.deck.id, entry]));
-  const readyEntries = availableDecks.filter(({ questions }) => computeDeckReadiness(questions).ready);
-  const notReadyEntries = availableDecks.filter(({ questions }) => !computeDeckReadiness(questions).ready);
   const selectedEntries = selectedDeckIds.map((id) => entryById.get(id)).filter((e): e is DeckEntry => e !== undefined);
 
   const planSummary = computePlanSummary(
@@ -51,11 +55,6 @@ function GameSetupPanel({
     })),
     targetDurationSeconds,
   );
-
-  function handleSelect(deckId: string) {
-    if (selectedDeckIds.includes(deckId) || selectedDeckIds.length >= MAX_DECKS_PER_GAME) return;
-    onChangeSelection([...selectedDeckIds, deckId]);
-  }
 
   function handleRemove(deckId: string) {
     onChangeSelection(selectedDeckIds.filter((id) => id !== deckId));
@@ -87,7 +86,9 @@ function GameSetupPanel({
           Selected Decks ({selectedDeckIds.length}/{MAX_DECKS_PER_GAME})
         </h3>
         {selectedEntries.length === 0 ? (
-          <p className="game-setup-panel-hint">Choose at least one Deck below.</p>
+          <p className="game-setup-panel-hint">
+            No Decks selected yet — you&rsquo;ll play the built-in Quick Play sample Questions.
+          </p>
         ) : (
           <ul className="game-setup-panel-list">
             {selectedEntries.map(({ deck, questions }, index) => {
@@ -136,43 +137,14 @@ function GameSetupPanel({
             })}
           </ul>
         )}
-      </div>
-
-      <div className="game-setup-panel-section">
-        <h3>Available Decks</h3>
-        <ul className="game-setup-panel-list">
-          {readyEntries
-            .filter(({ deck }) => !selectedDeckIds.includes(deck.id))
-            .map(({ deck, questions }) => (
-              <li key={deck.id} className="game-setup-panel-item">
-                <span>
-                  {deck.title} · {questions.length} Question{questions.length === 1 ? "" : "s"}
-                </span>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => handleSelect(deck.id)}
-                  disabled={selectedDeckIds.length >= MAX_DECKS_PER_GAME}
-                  aria-label={`Add ${deck.title}`}
-                >
-                  Add
-                </button>
-              </li>
-            ))}
-        </ul>
-        {notReadyEntries.length > 0 && (
-          <ul className="game-setup-panel-list game-setup-panel-unavailable">
-            {notReadyEntries.map(({ deck, questions }) => {
-              const readiness = computeDeckReadiness(questions);
-              return (
-                <li key={deck.id} className="game-setup-panel-item">
-                  <span>{deck.title}</span>
-                  <span className="game-setup-panel-hint">{readiness.problems.length} Questions need attention</span>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={onOpenPicker}
+          disabled={selectedDeckIds.length >= MAX_DECKS_PER_GAME}
+        >
+          {selectedEntries.length === 0 ? "+ Add Deck" : "+ Add Another Deck"}
+        </button>
       </div>
 
       <div className="game-setup-panel-section">
