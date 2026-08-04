@@ -10,16 +10,20 @@ import type { DeckQuestionRecord } from "../types/deck";
 const SNAPSHOT_VERSION = 1;
 
 /**
- * Which of the three Host Lobby stages the room is currently in, while
+ * Which of the two Host Lobby stages the room is currently in, while
  * `phase` is still 'lobby': Invite (just getting people connected, no
- * game settings shown), Setup (the Host is actively configuring the
- * game, editable), or Ready (Setup has been confirmed - Deck selection,
- * duration, and competition style are locked; only Start Game or Edit
- * Setup remain). Lives on the `planned_game` shape below, not as a
- * separate room column - see migration 0006 for why the DB-level
- * competition-style lock reads this same field.
+ * game settings shown) or Setup (the Host is configuring the game -
+ * Deck selection, duration, competition style, Host Participation -
+ * all editable). There is no separate "confirmed/locked" stage: Start
+ * Game is pressed directly from Setup, and that's the only moment
+ * configuration locks (see migration 0007 - competition style stays
+ * editable through both stages, keyed off `phase`, not this field).
+ * Lives on the `planned_game` shape below, not as a separate room
+ * column. The Host can move back to Invite from Setup at any time
+ * (see useGameRoom's returnToInvite) without losing anything already
+ * configured.
  */
-export type LobbyStatus = "invite" | "setup" | "ready";
+export type LobbyStatus = "invite" | "setup";
 
 /**
  * Whether the Host is a dedicated, non-competing facilitator
@@ -107,12 +111,13 @@ export interface PlannedGamePlanSummary {
  * hold, with no new plumbing. Every room gets one of these the moment
  * it's created (Quick Play included, via `isQuickPlay: true` - Quick
  * Play never has Decks to pick, but it still moves through the same
- * Invite/Setup/Ready stages so its Host Participation and competition
- * style follow the same lock timing as a Custom Game). Start Game
- * replaces this with a frozen GamePlan - except for Quick Play, whose
- * "plan" is just the hardcoded sample Questions, so nothing needs
- * freezing; its planned_game object is simply left in place with
- * `status: "ready"`.
+ * Invite/Setup stages so its Host Participation and competition style
+ * follow the same lock timing as a Custom Game). Start Game replaces
+ * this with a frozen GamePlan - except for Quick Play, whose "plan" is
+ * just the hardcoded sample Questions, so nothing needs freezing; its
+ * planned_game object is simply left in place, still at
+ * `status: "setup"`, and the room's `phase` leaving 'lobby' is what
+ * actually locks it (see migration 0007).
  */
 export interface PlannedGame {
   kind: "planned_game";
@@ -139,7 +144,7 @@ function isPlanSummaryShape(value: unknown): value is PlannedGamePlanSummary {
 }
 
 function isLobbyStatus(value: unknown): value is LobbyStatus {
-  return value === "invite" || value === "setup" || value === "ready";
+  return value === "invite" || value === "setup";
 }
 
 function isHostParticipation(value: unknown): value is HostParticipation {
@@ -205,18 +210,18 @@ export function parseRoomDeckSnapshot(raw: unknown): RoomDeckSnapshot | null {
 }
 
 /**
- * The single place that decides which of the three Host Lobby stages a
+ * The single place that decides which of the two Host Lobby stages a
  * room is currently in, while `phase` is still 'lobby'. A frozen
  * `game_plan` present during the lobby phase only ever means a
  * post-Play-Again rematch, whose setup is always locked/read-only - so
- * it's always "ready", never "invite" or "setup". A `null` snapshot
- * only happens for a legacy room from before this restructure; treating
- * it as "invite" is the safest fallback (never skips a stage the Host
- * hasn't actually seen).
+ * it's always "setup" (never "invite" - a rematch never goes through a
+ * fresh Invite screen). A `null` snapshot only happens for a legacy
+ * room from before this restructure; treating it as "invite" is the
+ * safest fallback (never skips a stage the Host hasn't actually seen).
  */
 export function deriveLobbyStage(deckSnapshot: RoomDeckSnapshot | null): LobbyStatus {
   if (!deckSnapshot) return "invite";
-  if (deckSnapshot.kind === "game_plan") return "ready";
+  if (deckSnapshot.kind === "game_plan") return "setup";
   return deckSnapshot.status;
 }
 

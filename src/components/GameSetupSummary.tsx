@@ -33,9 +33,10 @@ function CompetitionAndHostLines({
  * total/estimate, competition style, and Host Participation - never
  * correct answers, accepted variants, points, which Questions are
  * incomplete, or the per-section second-by-second allocation math the
- * Host's own setup panel works with. The final "ready"/"still setting
- * up" line reflects the room's own `status` field, so it can never
- * drift from what the Host's Confirm Setup button actually did.
+ * Host's own setup panel works with. There is no "ready" state to
+ * distinguish here - Start Game is the only checkpoint, so any
+ * `planned_game` snapshot simply reads as "the Host is setting up the
+ * game" until the moment it's replaced with a frozen `game_plan`.
  */
 function GameSetupSummary({ deckSnapshot, competitionStyle }: GameSetupSummaryProps) {
   if (deckSnapshot === null) {
@@ -47,10 +48,9 @@ function GameSetupSummary({ deckSnapshot, competitionStyle }: GameSetupSummaryPr
   }
 
   if (deckSnapshot.kind === "planned_game") {
-    const isReady = deckSnapshot.status === "ready";
     const readinessLine = (
       <p className="game-setup-summary-status" role="status">
-        {isReady ? "Everything is ready. Waiting for the Host to start." : "The Host is setting up the game."}
+        The Host is setting up the game.
       </p>
     );
 

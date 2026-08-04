@@ -415,7 +415,7 @@ describe("parseRoomDeckSnapshot", () => {
 });
 
 describe("deriveLobbyStage", () => {
-  function planAtStatus(status: "invite" | "setup" | "ready"): PlannedGame {
+  function planAtStatus(status: "invite" | "setup"): PlannedGame {
     return {
       kind: "planned_game",
       version: 1,
@@ -432,15 +432,14 @@ describe("deriveLobbyStage", () => {
     expect(deriveLobbyStage(null)).toBe("invite");
   });
 
-  it("returns the planned_game's own status for each of invite/setup/ready", () => {
+  it("returns the planned_game's own status for each of invite/setup", () => {
     expect(deriveLobbyStage(planAtStatus("invite"))).toBe("invite");
     expect(deriveLobbyStage(planAtStatus("setup"))).toBe("setup");
-    expect(deriveLobbyStage(planAtStatus("ready"))).toBe("ready");
   });
 
-  it("always returns 'ready' for a frozen game_plan (a rematch Lobby is always locked)", () => {
+  it("always returns 'setup' for a frozen game_plan (a rematch Lobby skips Invite and is always locked)", () => {
     const decks: DeckPlanInput[] = [{ deckId: "d1", deckTitle: "Movies", questions: makeQuestions(3, "m") }];
     const plan = { ...computeGamePlan(decks, 600), hostParticipation: "host_only" as const };
-    expect(deriveLobbyStage(plan)).toBe("ready");
+    expect(deriveLobbyStage(plan)).toBe("setup");
   });
 });

@@ -153,3 +153,21 @@
   padding: 0;
   font: inherit;
 }
+
+.host-setup-player-count {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.host-setup-roster {
+  width: 100%;
+  max-width: 420px;
+  text-align: left;
+}
+
+.host-setup-roster summary {
+  cursor: pointer;
+  color: var(--color-teal);
+  font-size: 0.9rem;
+  text-align: center;
+}

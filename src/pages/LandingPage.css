@@ -45,6 +45,11 @@
   margin-top: var(--space-md);
 }
 
+.landing-error {
+  color: var(--color-pink);
+  font-size: 0.9rem;
+}
+
 .landing-reassurance {
   color: var(--color-text-muted);
   font-size: 0.9rem;

@@ -75,7 +75,7 @@ interface UseGameRoomResult {
   /** Non-null only in Team mode: how many active Players still lack a Team, phrased for direct display. Null means Start Game's Team gate is clear. */
   teamReadinessProblem: string | null;
   /**
-   * Which of the three Host Lobby stages this room is currently in
+   * Which of the two Host Lobby stages this room is currently in
    * (while phase is still 'lobby') - see gamePlan.ts's deriveLobbyStage.
    * Host, Player, and Stage all derive their lobby rendering from this
    * single value so it can never drift between clients.
@@ -98,14 +98,13 @@ interface UseGameRoomResult {
   /** Invite -> Setup. Always available - the Host can move on with zero Players joined. */
   advanceToSetup: () => Promise<void>;
   /**
-   * Setup -> Ready. Revalidates Deck selection/readiness (for a
-   * non-Quick-Play room) before locking - this is the moment competition
-   * style and structural configuration become locked (see migration
-   * 0006), not Start Game.
+   * Setup -> Invite. Purely a view change - every Deck selection,
+   * duration, competition style, and Host Participation choice already
+   * made is preserved untouched (see patchPlannedGame). Not available
+   * for a locked rematch, which never shows an Invite screen at all.
    */
-  confirmSetup: () => Promise<{ ok: boolean; error?: string }>;
-  /** Ready -> Setup. Unlocks configuration again; must be re-confirmed before Start Game. Not available for a locked rematch. */
-  editSetup: () => Promise<void>;
+  returnToInvite: () => Promise<void>;
+  /** Validates, freezes, and locks the final Game Plan, then starts gameplay - the one action that ends Game Setup. See migration 0007: this is also the moment competition style itself locks. */
   startGame: () => Promise<{ ok: boolean; error?: string }>;
   submitAnswer: (optionId: string) => Promise<void>;
   submitTypedAnswer: (text: string) => Promise<void>;
@@ -437,9 +436,11 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
    * Persists a live Deck-selection/duration change to rooms.deck_snapshot
    * as a `planned_game` (see hostFlow.buildPlannedGame). Unlike
    * patchPlannedGame, this rebuilds the whole object (a Deck-selection
-   * change needs a freshly recomputed planSummary) - so the room's
-   * *current* isQuickPlay/status/hostParticipation are explicitly read
-   * and passed through, or they'd silently reset to their defaults.
+   * change needs a freshly recomputed planSummary, and `isQuickPlay`
+   * itself is derived fresh from whether `selectedDeckIds` is empty -
+   * see buildPlannedGame) - so the room's *current* status/hostParticipation
+   * are explicitly read and passed through, or they'd silently reset to
+   * their defaults.
    */
   const updateRoomSetup = useCallback(
     async (selectedDeckIds: string[], targetDurationSeconds: number) => {
@@ -454,7 +455,6 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
         throw new Error("Setup can only change during the Game Setup stage.");
       }
       const planned = await buildPlannedGame(selectedDeckIds, targetDurationSeconds, {
-        isQuickPlay: room.deckSnapshot.isQuickPlay,
         status: room.deckSnapshot.status,
         hostParticipation: room.deckSnapshot.hostParticipation,
       });
@@ -481,10 +481,7 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
   const advanceToSetup = useCallback(async () => {
     if (!room) throw new Error("Room not loaded yet.");
     if (room.deckSnapshot === null) {
-      const planned = await buildPlannedGame([], GAME_DURATION_MINUTES_DEFAULT * 60, {
-        isQuickPlay: true,
-        status: "setup",
-      });
+      const planned = await buildPlannedGame([], GAME_DURATION_MINUTES_DEFAULT * 60, { status: "setup" });
       await setRoomDeckSnapshot(roomCode, planned);
       return;
     }
@@ -493,53 +490,14 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
   }, [roomCode, room, patchPlannedGame]);
 
   /**
-   * Setup -> Ready. This is the moment competition style and structural
-   * configuration lock (see migration 0006's trigger, which reads this
-   * same `status` field) - not Start Game. Revalidates the Deck
-   * selection fresh (mirrors the same checks Start Game itself makes)
-   * so the Ready Lobby can never show a configuration that's actually
-   * broken; Quick Play skips Deck validation entirely, since it has none.
+   * Setup -> Invite. Purely a view toggle - every field on the
+   * planned_game (selected Decks, duration, competition style,
+   * hostParticipation) is left exactly as it is; only `status` changes.
+   * Not available for a locked rematch (patchPlannedGame rejects when
+   * deckSnapshot.kind is "game_plan").
    */
-  const confirmSetup = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
-    if (!room) return { ok: false, error: "Room not loaded yet." };
-    if (room.deckSnapshot?.kind !== "planned_game") {
-      return { ok: false, error: "This room's Game Plan is locked from a previous game." };
-    }
-    const snapshot = room.deckSnapshot;
-
-    if (!snapshot.isQuickPlay) {
-      if (snapshot.selectedDeckIds.length === 0) {
-        return { ok: false, error: "Choose at least one Deck before confirming setup." };
-      }
-      try {
-        const deckInputs: DeckPlanInput[] = await Promise.all(
-          snapshot.selectedDeckIds.map(async (deckId) => {
-            const deck = await fetchDeck(deckId);
-            if (!deck) throw new Error("One of the selected Decks is no longer available.");
-            const allQuestions = await fetchDeckQuestions(deckId);
-            const readiness = computeDeckReadiness(allQuestions);
-            if (!readiness.ready) {
-              throw new Error(`"${deck.title}" is no longer ready to host: ${readiness.problems[0]}`);
-            }
-            return { deckId: deck.id, deckTitle: deck.title, questions: allQuestions };
-          }),
-        );
-        const validation = validateDeckSelection(deckInputs);
-        if (!validation.valid) {
-          return { ok: false, error: validation.reason };
-        }
-      } catch (error) {
-        return { ok: false, error: error instanceof Error ? error.message : "Couldn't confirm setup. Try again." };
-      }
-    }
-
-    await patchPlannedGame({ status: "ready" });
-    return { ok: true };
-  }, [room, patchPlannedGame]);
-
-  /** Ready -> Setup. Not available for a locked rematch (patchPlannedGame rejects when deckSnapshot.kind is "game_plan"). */
-  const editSetup = useCallback(async () => {
-    await patchPlannedGame({ status: "setup" });
+  const returnToInvite = useCallback(async () => {
+    await patchPlannedGame({ status: "invite" });
   }, [patchPlannedGame]);
 
   const lobbyStage = deriveLobbyStage(room?.deckSnapshot ?? null);
@@ -572,8 +530,7 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
    *    verbatim, only current_question_id resets to its first Question.
    *  - kind "planned_game", isQuickPlay true: Quick Play - there is no
    *    Deck plan to compute or freeze, so deck_snapshot is left exactly
-   *    as-is (already `status: "ready"` from Confirm Setup) and only the
-   *    phase/current_question_id change.
+   *    as-is and only the phase/current_question_id change.
    *  - kind "planned_game", isQuickPlay false: first Start Game in this
    *    room for a Deck-hosted game - re-fetches every selected Deck's
    *    *current* saved content, revalidates readiness, computes the
@@ -583,10 +540,9 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
    *  - null: a legacy room from before this restructure - falls back to
    *    the original Quick Play behaviour exactly as it worked before.
    *
-   * In every case, `status !== "ready"` is rejected outright: Start Game
-   * only ever runs from the Ready Lobby, and this is a defense-in-depth
-   * check against a stale Host tab somehow still showing a Start button
-   * before Confirm Setup actually happened.
+   * Start Game is callable directly from the Setup stage - there is no
+   * separate confirmation step. This is the one moment configuration
+   * (including competition style, see migration 0007) actually locks.
    */
   const startGame = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
     if (!room) return { ok: false, error: "Room not loaded yet." };
@@ -620,10 +576,6 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
     }
 
     if (snapshot?.kind === "planned_game") {
-      if (snapshot.status !== "ready") {
-        return { ok: false, error: "Confirm the game setup before starting." };
-      }
-
       if (snapshot.isQuickPlay) {
         return transitionPhase(roomCode, room.phase, "question", { current_question_id: FIRST_QUESTION_ID });
       }
@@ -832,8 +784,7 @@ export function useGameRoom({ roomCode, self }: UseGameRoomOptions): UseGameRoom
     updateRoomSetup,
     setHostParticipation,
     advanceToSetup,
-    confirmSetup,
-    editSetup,
+    returnToInvite,
     startGame,
     submitAnswer,
     submitTypedAnswer,
