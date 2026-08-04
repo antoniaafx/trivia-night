@@ -19,6 +19,14 @@
   color: var(--color-orange);
 }
 
+.my-decks-select-context {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--color-border);
+  font-size: 0.9rem;
+}
+
 .my-decks-dev-tool {
   display: flex;
   align-items: center;

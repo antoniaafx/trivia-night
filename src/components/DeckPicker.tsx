@@ -12,6 +12,8 @@ interface DeckPickerProps {
   selectedDeckIds: string[];
   onChangeSelection: (selectedDeckIds: string[]) => void;
   onClose: () => void;
+  /** The active room's code, so the empty-state fallback to My Decks can carry `?selectForRoom=` and land back on this same room instead of starting a new one. */
+  roomCode: string;
 }
 
 /**
@@ -33,7 +35,7 @@ interface DeckPickerProps {
  * feed it a different `decks` array, or a merged one, without this
  * component changing at all.
  */
-function DeckPicker({ open, decks, selectedDeckIds, onChangeSelection, onClose }: DeckPickerProps) {
+function DeckPicker({ open, decks, selectedDeckIds, onChangeSelection, onClose, roomCode }: DeckPickerProps) {
   useEffect(() => {
     if (!open) return;
 
@@ -92,7 +94,7 @@ function DeckPicker({ open, decks, selectedDeckIds, onChangeSelection, onClose }
           {decks !== null && decks.length === 0 && (
             <p className="deck-picker-status">
               You haven&rsquo;t created any Decks yet.{" "}
-              <a href="/decks" target="_blank" rel="noreferrer">
+              <a href={`/decks?selectForRoom=${roomCode}`} target="_blank" rel="noreferrer">
                 Create one in My Decks
               </a>{" "}
               — this window will stay open while you do, and Quick Play will keep the game playable in the meantime.

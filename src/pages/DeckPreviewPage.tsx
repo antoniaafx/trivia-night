@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { fetchDeck, fetchDeckQuestions } from "../services/deckRepository";
 import { mapDeckQuestionToGameQuestion } from "../utils/deckQuestionMapping";
 import { computeDeckReadiness } from "../utils/deckValidation";
@@ -20,6 +20,9 @@ import "./DeckPreviewPage.css";
  */
 function DeckPreviewPage() {
   const { deckId = "" } = useParams<{ deckId: string }>();
+  const [searchParams] = useSearchParams();
+  const selectForRoom = searchParams.get("selectForRoom");
+  const editorLink = selectForRoom ? `/decks/${deckId}?selectForRoom=${selectForRoom}` : `/decks/${deckId}`;
   const [deck, setDeck] = useState<DeckRecord | null>(null);
   const [questions, setQuestions] = useState<DeckQuestionRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +59,7 @@ function DeckPreviewPage() {
     return (
       <div className="deck-preview-message">
         <p role="alert">{error}</p>
-        <Link to={`/decks/${deckId}`} className="btn btn-primary">
+        <Link to={editorLink} className="btn btn-primary">
           Back to editor
         </Link>
       </div>
@@ -117,7 +120,7 @@ function DeckPreviewPage() {
         </button>
       </div>
 
-      <Link to={`/decks/${deckId}`} className="deck-preview-return">
+      <Link to={editorLink} className="deck-preview-return">
         Return to editor
       </Link>
     </div>

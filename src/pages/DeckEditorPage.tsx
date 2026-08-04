@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useCreatorId } from "../hooks/useCreatorId";
 import { useAutosaveController, type SaveStatus } from "../hooks/useAutosaveController";
 import {
@@ -14,7 +14,7 @@ import {
   updateQuestion,
   type DeckQuestionPatch,
 } from "../services/deckRepository";
-import { createHostedRoom } from "../services/hostFlow";
+import { addDeckToRoom, checkRoomSelectable, createHostedRoom, type RoomSelectionStatus } from "../services/hostFlow";
 import { computeDeckReadiness, cleanAcceptedVariants } from "../utils/deckValidation";
 import LoadingScreen from "../components/LoadingScreen";
 import type { AnswerMethod, QuestionOption } from "../data/questions";
@@ -29,9 +29,28 @@ function DeckEditorPage() {
   const { deckId = "" } = useParams<{ deckId: string }>();
   const creatorId = useCreatorId();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const selectForRoom = searchParams.get("selectForRoom");
   const autosave = useAutosaveController();
   const [hostBusy, setHostBusy] = useState(false);
   const [hostError, setHostError] = useState<string | null>(null);
+  const [roomSelectionStatus, setRoomSelectionStatus] = useState<RoomSelectionStatus | "checking">("checking");
+
+  useEffect(() => {
+    if (!selectForRoom) return;
+    let cancelled = false;
+    setRoomSelectionStatus("checking");
+    checkRoomSelectable(selectForRoom)
+      .then((status) => {
+        if (!cancelled) setRoomSelectionStatus(status);
+      })
+      .catch(() => {
+        if (!cancelled) setRoomSelectionStatus("not_found");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectForRoom]);
 
   const [deck, setDeck] = useState<DeckRecord | null>(null);
   const [questions, setQuestions] = useState<DeckQuestionRecord[] | null>(null);
@@ -190,12 +209,35 @@ function DeckEditorPage() {
     }
   }
 
+  async function handleAddToGame() {
+    if (!selectForRoom) return;
+    setHostError(null);
+    setHostBusy(true);
+    try {
+      const result = await addDeckToRoom(selectForRoom, deckId);
+      if (!result.ok) {
+        setRoomSelectionStatus(result.reason === "deck_limit_reached" ? roomSelectionStatus : result.reason);
+        setHostError(
+          result.reason === "deck_limit_reached"
+            ? "That room already has the maximum number of Decks."
+            : "That room can't accept new Decks right now.",
+        );
+        setHostBusy(false);
+        return;
+      }
+      navigate(`/host/${selectForRoom}`);
+    } catch {
+      setHostError("Couldn't add that Deck to the room. Try again.");
+      setHostBusy(false);
+    }
+  }
+
   if (notFound) {
     return (
       <div className="deck-editor-message">
         <h1>Deck not found</h1>
         <p>This Deck doesn&rsquo;t exist, or isn&rsquo;t one you created in this browser.</p>
-        <Link to="/decks" className="btn btn-primary">
+        <Link to={selectForRoom ? `/decks?selectForRoom=${selectForRoom}` : "/decks"} className="btn btn-primary">
           Back to My Decks
         </Link>
       </div>
@@ -244,6 +286,21 @@ function DeckEditorPage() {
         </ul>
       )}
 
+      {selectForRoom && (
+        <p className="deck-editor-select-context">
+          {roomSelectionStatus === "checking" && "Checking that room..."}
+          {roomSelectionStatus === "not_found" && `Room ${selectForRoom} couldn't be found.`}
+          {roomSelectionStatus === "not_editable" &&
+            `Room ${selectForRoom} has already started or ended, so it can't accept a new Deck.`}
+          {roomSelectionStatus === "valid" && (
+            <>
+              Saving here will add this Deck to room {selectForRoom}.{" "}
+              <Link to={`/host/${selectForRoom}`}>Back to Game Setup</Link>
+            </>
+          )}
+        </p>
+      )}
+
       {actionError && (
         <p className="deck-editor-error" role="alert">
           {actionError}
@@ -252,7 +309,10 @@ function DeckEditorPage() {
 
       <div className="deck-editor-actions">
         {readiness.ready ? (
-          <Link to={`/decks/${deckId}/preview`} className="btn btn-ghost">
+          <Link
+            to={selectForRoom ? `/decks/${deckId}/preview?selectForRoom=${selectForRoom}` : `/decks/${deckId}/preview`}
+            className="btn btn-ghost"
+          >
             Preview
           </Link>
         ) : (
@@ -260,14 +320,25 @@ function DeckEditorPage() {
             Preview
           </button>
         )}
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={() => void handleHostThisDeck()}
-          disabled={!readiness.ready || hostBusy}
-        >
-          Host This Deck
-        </button>
+        {selectForRoom ? (
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => void handleAddToGame()}
+            disabled={!readiness.ready || hostBusy || roomSelectionStatus !== "valid"}
+          >
+            Add to Game
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => void handleHostThisDeck()}
+            disabled={!readiness.ready || hostBusy}
+          >
+            Host This Deck
+          </button>
+        )}
       </div>
 
       {hostError && (
