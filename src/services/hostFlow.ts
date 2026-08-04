@@ -1,9 +1,9 @@
 import { generateRoomCode } from "./roomCode";
-import { ensureRoomExists, fetchRoom, setRoomDeckSnapshot } from "./gameRoomRepository";
+import { ensureRoomExists, setRoomDeckSnapshot } from "./gameRoomRepository";
 import { fetchDeck, fetchDeckQuestions } from "./deckRepository";
 import { computePlanSummary } from "../utils/gamePlan";
 import { isQuestionComplete } from "../utils/deckValidation";
-import { GAME_DURATION_MINUTES_DEFAULT, MAX_DECKS_PER_GAME } from "../config/timingEstimates";
+import { GAME_DURATION_MINUTES_DEFAULT } from "../config/timingEstimates";
 import type { HostParticipation, LobbyStatus, PlannedGame, DeckPlanInput } from "../utils/gamePlan";
 
 interface BuildPlannedGameOptions {
@@ -92,67 +92,4 @@ export async function createHostedRoom(preselectedDeckIds: string[] = []): Promi
   const planned = await buildPlannedGame(preselectedDeckIds, targetDurationSeconds, { status: "invite" });
   await setRoomDeckSnapshot(roomCode, planned);
   return roomCode;
-}
-
-export type RoomSelectionStatus = "valid" | "not_found" | "not_editable";
-
-/**
- * Read-only check for whether `roomCode` can currently accept a Deck
- * selection from outside its own Game Setup screen (My Decks/Deck
- * Editor reached via `?selectForRoom=`). "not_editable" covers both an
- * already-started/ended game (`phase !== "lobby"`) and a locked
- * Play-Again rematch (`deck_snapshot.kind === "game_plan"`) - neither
- * has an editable Deck list to add to. Used both to drive the page's
- * own banner/button state on load and, independently, inside
- * addDeckToRoom immediately before it writes - a page-load check alone
- * could go stale if the Host starts the game in another tab while this
- * page is still open.
- */
-export async function checkRoomSelectable(roomCode: string): Promise<RoomSelectionStatus> {
-  const room = await fetchRoom(roomCode);
-  if (!room) return "not_found";
-  if (room.phase !== "lobby" || room.deckSnapshot?.kind !== "planned_game") return "not_editable";
-  return "valid";
-}
-
-export type AddDeckToRoomResult = { ok: true } | { ok: false; reason: RoomSelectionStatus | "deck_limit_reached" };
-
-/**
- * The "select this Deck for the game I'm already running" counterpart
- * to createHostedRoom - used when the Host reaches My Decks or the
- * Deck Editor from an active room's Game Setup (see MyDecksPage's and
- * DeckEditorPage's `selectForRoom` handling) instead of always
- * spinning up a brand-new room. Appends `deckId` to that room's
- * current `selectedDeckIds` (no duplicates, existing order preserved,
- * capped at MAX_DECKS_PER_GAME same as the embedded picker), rebuilds
- * the planned_game exactly the way useGameRoom's updateRoomSetup does,
- * and writes it back through the same setRoomDeckSnapshot path.
- * `targetDurationSeconds`/`status`/`hostParticipation` are read from
- * the room's own current snapshot and passed straight through
- * unchanged. Every other client already subscribed to this room's
- * realtime channel - including the Host's own Game Setup tab, if still
- * open - picks the change up live; nothing here performs navigation or
- * touches `phase`, competition style, Players, or Teams.
- */
-export async function addDeckToRoom(roomCode: string, deckId: string): Promise<AddDeckToRoomResult> {
-  const room = await fetchRoom(roomCode);
-  if (!room) return { ok: false, reason: "not_found" };
-  if (room.phase !== "lobby" || room.deckSnapshot?.kind !== "planned_game") {
-    return { ok: false, reason: "not_editable" };
-  }
-
-  const snapshot = room.deckSnapshot;
-  const alreadySelected = snapshot.selectedDeckIds.includes(deckId);
-  if (!alreadySelected && snapshot.selectedDeckIds.length >= MAX_DECKS_PER_GAME) {
-    return { ok: false, reason: "deck_limit_reached" };
-  }
-
-  const nextSelectedDeckIds = alreadySelected ? snapshot.selectedDeckIds : [...snapshot.selectedDeckIds, deckId];
-
-  const planned = await buildPlannedGame(nextSelectedDeckIds, snapshot.targetDurationSeconds, {
-    status: snapshot.status,
-    hostParticipation: snapshot.hostParticipation,
-  });
-  await setRoomDeckSnapshot(roomCode, planned);
-  return { ok: true };
 }

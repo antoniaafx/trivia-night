@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Presentation, Users } from "lucide-react";
+import { Library, Presentation, Users } from "lucide-react";
 import { createHostedRoom } from "../services/hostFlow";
 import "./LandingPage.css";
 
@@ -10,6 +10,13 @@ import "./LandingPage.css";
  * Invite Screen - no Deck/mode chooser first. No Deck is preselected
  * (Game Setup opens with Quick Play, the built-in sample Questions,
  * ready to keep or replace with real Decks once the Host gets there).
+ *
+ * Three destinations, on purpose: preparing content (Deck Library) and
+ * hosting a game are two separate workflows that never mix - a Host
+ * with Players already waiting should never be pulled into content
+ * creation (see Game Setup's DeckPicker, which is selection-only). The
+ * Deck Library is exposed here, before hosting, as the natural place a
+ * creator builds out their Decks ahead of time.
  */
 function LandingPage() {
   const navigate = useNavigate();
@@ -54,6 +61,10 @@ function LandingPage() {
           <Link to="/join" className="btn btn-secondary">
             <Users size={20} strokeWidth={2.25} />
             Join a Game
+          </Link>
+          <Link to="/decks" className="btn btn-ghost">
+            <Library size={20} strokeWidth={2.25} />
+            Deck Library
           </Link>
         </div>
 

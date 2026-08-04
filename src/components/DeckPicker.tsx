@@ -1,18 +1,9 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useCreatorId } from "../hooks/useCreatorId";
-import { createDeck } from "../services/deckRepository";
+import { useEffect } from "react";
 import { computeDeckReadiness, isQuestionComplete } from "../utils/deckValidation";
 import { formatApproximateMinutes } from "../utils/formatDuration";
 import { MAX_DECKS_PER_GAME, QUESTION_SECONDS_ESTIMATE } from "../config/timingEstimates";
 import type { DeckEntry } from "./GameSetupPanel";
 import "./DeckPicker.css";
-
-const MOBILE_BREAKPOINT_QUERY = "(max-width: 640px)";
-
-function isMobileViewport(): boolean {
-  return window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches;
-}
 
 interface DeckPickerProps {
   open: boolean;
@@ -21,8 +12,6 @@ interface DeckPickerProps {
   selectedDeckIds: string[];
   onChangeSelection: (selectedDeckIds: string[]) => void;
   onClose: () => void;
-  /** The active room's code, carried as `?selectForRoom=` into the Create New Deck / Open My Decks escape routes so the Host always lands back on this same room instead of starting a new one. */
-  roomCode: string;
 }
 
 /**
@@ -37,6 +26,14 @@ interface DeckPickerProps {
  * Escape/backdrop-click are just ways to close an overlay whose state
  * is already saved.
  *
+ * Deliberately selection-only: no create/edit/delete/preview affordance
+ * and no navigation away from Game Setup lives here or anywhere else in
+ * the Host Lobby. Preparing content (the Deck Library, at `/decks`) and
+ * hosting a game are two separate workflows on purpose - a Host with
+ * Players already waiting should never be pulled into content creation.
+ * A Host who needs to create or fix a Deck does that in the Deck
+ * Library first, then comes back here to select it.
+ *
  * `decks` is deliberately just "the Decks available to choose from,"
  * not "My Decks" - Version 1 only ever passes the creator's own Decks,
  * but nothing here assumes that. A future source picker (Official,
@@ -44,12 +41,7 @@ interface DeckPickerProps {
  * feed it a different `decks` array, or a merged one, without this
  * component changing at all.
  */
-function DeckPicker({ open, decks, selectedDeckIds, onChangeSelection, onClose, roomCode }: DeckPickerProps) {
-  const creatorId = useCreatorId();
-  const navigate = useNavigate();
-  const [creatingDeck, setCreatingDeck] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-
+function DeckPicker({ open, decks, selectedDeckIds, onChangeSelection, onClose }: DeckPickerProps) {
   useEffect(() => {
     if (!open) return;
 
@@ -78,45 +70,6 @@ function DeckPicker({ open, decks, selectedDeckIds, onChangeSelection, onClose, 
     onChangeSelection([...selectedDeckIds, deckId]);
   }
 
-  async function handleCreateNew() {
-    setCreateError(null);
-    setCreatingDeck(true);
-
-    const mobile = isMobileViewport();
-    // Opened synchronously, in the same tick as the click, and redirected
-    // once the Deck exists - window.open() called after the `await` below
-    // is a *new* async task by the time it runs, so browsers no longer
-    // treat it as tied to the click and silently block it as a popup.
-    const newTab = mobile ? null : window.open("", "_blank");
-
-    try {
-      const deck = await createDeck(creatorId);
-      const url = `/decks/${deck.id}?selectForRoom=${roomCode}`;
-      if (mobile) {
-        onClose();
-        navigate(url);
-        return;
-      }
-      if (newTab) {
-        newTab.location.href = url;
-      } else {
-        // The synchronous open was itself blocked - fall back to same-tab
-        // navigation rather than leaving the Host with a dead click.
-        onClose();
-        navigate(url);
-      }
-    } catch {
-      newTab?.close();
-      setCreateError("Couldn't create a new Deck. Try again.");
-    } finally {
-      setCreatingDeck(false);
-    }
-  }
-
-  function handleOpenMyDecksClick() {
-    if (isMobileViewport()) onClose();
-  }
-
   const readyEntries = decks?.filter(({ questions }) => computeDeckReadiness(questions).ready) ?? [];
   const notReadyEntries = decks?.filter(({ questions }) => !computeDeckReadiness(questions).ready) ?? [];
   const atMax = selectedDeckIds.length >= MAX_DECKS_PER_GAME;
@@ -128,9 +81,9 @@ function DeckPicker({ open, decks, selectedDeckIds, onChangeSelection, onClose, 
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="deck-picker card" role="dialog" aria-modal="true" aria-label="Add Decks">
+      <div className="deck-picker card" role="dialog" aria-modal="true" aria-label="Choose Tonight's Decks">
         <div className="deck-picker-header">
-          <h2>Add Decks</h2>
+          <h2>Choose Tonight&rsquo;s Decks</h2>
           <button type="button" className="btn btn-ghost deck-picker-close" onClick={onClose} aria-label="Close">
             Close
           </button>
@@ -146,8 +99,8 @@ function DeckPicker({ open, decks, selectedDeckIds, onChangeSelection, onClose, 
 
           {decks !== null && decks.length === 0 && (
             <p className="deck-picker-status">
-              You haven&rsquo;t created any Decks yet — create one below, and Quick Play will keep the game playable in
-              the meantime.
+              You haven&rsquo;t created any Decks yet - Quick Play will keep the game playable until you add one from
+              the Deck Library.
             </p>
           )}
 
@@ -174,29 +127,6 @@ function DeckPicker({ open, decks, selectedDeckIds, onChangeSelection, onClose, 
                 ))}
               </ul>
             </div>
-          )}
-
-          {decks !== null && (
-            <div className="deck-picker-secondary">
-              <button type="button" className="btn btn-ghost" onClick={() => void handleCreateNew()} disabled={creatingDeck}>
-                {creatingDeck ? "Creating…" : "+ Create New Deck"}
-              </button>
-              <a
-                href={`/decks?selectForRoom=${roomCode}`}
-                target={isMobileViewport() ? undefined : "_blank"}
-                rel={isMobileViewport() ? undefined : "noreferrer"}
-                className="btn btn-ghost"
-                onClick={handleOpenMyDecksClick}
-              >
-                Open My Decks
-              </a>
-            </div>
-          )}
-
-          {createError && (
-            <p className="deck-picker-error" role="alert">
-              {createError}
-            </p>
           )}
         </div>
 

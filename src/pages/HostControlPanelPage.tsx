@@ -351,7 +351,6 @@ function HostControlPanelPage() {
 
       {room.phase === "lobby" && lobbyStage === "setup" && room.deckSnapshot && (
         <GameSetupPhase
-          roomCode={roomCode}
           competitionStyle={room.competitionStyle}
           onChangeStyle={(style) => void handleChangeStyle(style)}
           styleError={styleError}
@@ -612,7 +611,6 @@ function HostParticipationToggle({
  * touches anything already configured here.
  */
 function GameSetupPhase({
-  roomCode,
   competitionStyle,
   onChangeStyle,
   styleError,
@@ -636,7 +634,6 @@ function GameSetupPhase({
   starting,
   startError,
 }: {
-  roomCode: string;
   competitionStyle: CompetitionStyle;
   onChangeStyle: (style: CompetitionStyle) => void;
   styleError: string | null;
@@ -733,7 +730,6 @@ function GameSetupPhase({
             selectedDeckIds={setupSelectedDeckIds}
             onChangeSelection={onChangeSelection}
             onClose={() => setPickerOpen(false)}
-            roomCode={roomCode}
           />
         </>
       )}
