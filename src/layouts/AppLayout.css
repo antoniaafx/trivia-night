@@ -5,7 +5,18 @@
   flex-direction: column;
   background: var(--gradient-hero);
   position: relative;
-  overflow-x: hidden;
+  /* Both axes explicitly, not just overflow-x: per the CSS Overflow
+     spec, setting only one axis to a non-"visible" value forces the
+     other to compute as "auto" instead of staying "visible" - which
+     silently turned this element into its own scrollable box (clipping
+     the decorative glow circles below, whose negative bottom offset
+     bleeds past the shell's edge, added ~140px of invisible internal
+     scroll with no visible scrollbar). Genuine page content that's
+     taller than 100dvh (Deck Library, Deck Editor, ...) is unaffected -
+     it's in normal flow, so the shell's box grows to fit it and the
+     browser scrolls the document exactly as it always did; only the
+     out-of-flow decorative bleed gets clipped here.  */
+  overflow: hidden;
 }
 
 .app-shell::before,
