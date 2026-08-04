@@ -327,7 +327,7 @@ function DeckEditorPage() {
             onClick={() => void handleAddToGame()}
             disabled={!readiness.ready || hostBusy || roomSelectionStatus !== "valid"}
           >
-            Add to Game
+            Add to Current Game
           </button>
         ) : (
           <button
