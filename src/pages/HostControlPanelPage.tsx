@@ -413,32 +413,36 @@ function HostControlPanelPage() {
 
   return (
     <div className="host-lobby">
-      <div className="host-lobby-invite card">
-        <QRCodeSVG
-          value={joinUrl}
-          size={180}
-          bgColor="transparent"
-          fgColor="#f5f3ff"
-          title="Scan with a phone camera to join this game"
-        />
-        <p className="host-lobby-code">
-          Room code: <strong>{roomCode}</strong>
-        </p>
-        <p className="host-lobby-status" role="status">
-          {describeStatus(connectionStatus)}
-        </p>
-        <a href={stageUrl} target="_blank" rel="noreferrer" className="btn btn-ghost">
-          Open Stage
-        </a>
-      </div>
-
-      {room.phase === "lobby" && lobbyStage === "invite" && (
-        <InviteLobbyPhase
+      {room.phase === "lobby" && lobbyStage === "invite" ? (
+        <InviteLobbyCard
+          roomCode={roomCode}
+          joinUrl={joinUrl}
+          stageUrl={stageUrl}
+          connectionStatus={connectionStatus}
           joinedPlayers={joinedPlayers}
           onContinue={() => void handleContinueToSetup()}
           continuing={stageBusy}
           continueError={stageError}
         />
+      ) : (
+        <div className="host-lobby-invite card">
+          <QRCodeSVG
+            value={joinUrl}
+            size={180}
+            bgColor="transparent"
+            fgColor="#f5f3ff"
+            title="Scan with a phone camera to join this game"
+          />
+          <p className="host-lobby-code">
+            Room code: <strong>{roomCode}</strong>
+          </p>
+          <p className="host-lobby-status" role="status">
+            {describeStatus(connectionStatus)}
+          </p>
+          <a href={stageUrl} target="_blank" rel="noreferrer" className="btn btn-ghost">
+            Open Stage
+          </a>
+        </div>
       )}
 
       {room.phase === "lobby" && lobbyStage === "setup" && room.deckSnapshot && (
@@ -627,42 +631,120 @@ function RematchSummary({ plan }: { plan: Extract<RoomDeckSnapshot, { kind: "gam
 }
 
 /**
+ * How many joined Players to show as name chips before summarizing the
+ * rest as "+N more" - deliberately viewport-based (see useRosterLimit)
+ * so the card never grows into its own scroll container: a chip row
+ * wraps to at most a couple of lines at any of these limits, instead of
+ * an unbounded list. Recomputed on breakpoint crossings only (matchMedia
+ * "change", not a raw resize listener) since it only ever needs to
+ * change at those three tiers.
+ */
+function computeRosterLimit(): number {
+  if (window.matchMedia("(max-width: 420px)").matches) return 3;
+  if (window.matchMedia("(max-width: 768px)").matches) return 4;
+  return 6;
+}
+
+function useRosterLimit(): number {
+  const [limit, setLimit] = useState(computeRosterLimit);
+
+  useEffect(() => {
+    const queries = [window.matchMedia("(max-width: 420px)"), window.matchMedia("(max-width: 768px)")];
+    function update() {
+      setLimit(computeRosterLimit());
+    }
+    queries.forEach((query) => query.addEventListener("change", update));
+    return () => queries.forEach((query) => query.removeEventListener("change", update));
+  }, []);
+
+  return limit;
+}
+
+/**
  * Stage 1 - just getting people connected. Deliberately shows no game
  * settings at all (not even the Competition Style picker) - that's
  * Game Setup's job. Continue is always available, even with zero
- * Players, so the Host can test alone; its label softens to
- * "Continue Anyway" in that case as a small honesty nudge, not a block.
+ * Players, so the Host can test alone; its label makes that explicit
+ * ("Continue without players") rather than implying something is
+ * missing, as "Continue Anyway" used to.
+ *
+ * Merges what used to be two stacked cards (QR/room-code, and a
+ * separate "Waiting for players..." card) into one: the QR/code/status/
+ * Open Stage block and the Player count/roster/Continue block, side by
+ * side on wide viewports and stacked on narrow ones (see
+ * .invite-lobby-card's CSS). Every other phase still renders its own
+ * simple, unmerged QR card (unchanged, see the ternary in the parent
+ * component) - this merge is specific to the first thing a Host sees.
  */
-function InviteLobbyPhase({
+function InviteLobbyCard({
+  roomCode,
+  joinUrl,
+  stageUrl,
+  connectionStatus,
   joinedPlayers,
   onContinue,
   continuing,
   continueError,
 }: {
+  roomCode: string;
+  joinUrl: string;
+  stageUrl: string;
+  connectionStatus: string;
   joinedPlayers: RoomPlayer[];
   onContinue: () => void;
   continuing: boolean;
   continueError: string | null;
 }) {
-  const continueLabel = joinedPlayers.length === 0 ? "Continue Anyway" : "Continue";
+  const rosterLimit = useRosterLimit();
+  const count = joinedPlayers.length;
+  const visiblePlayers = joinedPlayers.slice(0, rosterLimit);
+  const remaining = count - visiblePlayers.length;
+  const continueLabel = count === 0 ? "Continue without players" : "Continue";
 
   return (
-    <div className="host-phase card">
-      <p className="host-phase-label">Invite Lobby</p>
-      <h2>
-        {joinedPlayers.length === 0
-          ? "Waiting for players..."
-          : `${joinedPlayers.length} player${joinedPlayers.length === 1 ? "" : "s"} joined`}
-      </h2>
-      <PlayerList players={joinedPlayers} emptyMessage="Waiting for players to join..." />
-      {continueError && (
-        <p className="host-style-note" role="alert">
-          {continueError}
+    <div className="invite-lobby-card card">
+      <div className="invite-lobby-primary">
+        <div className="invite-qr">
+          <QRCodeSVG
+            value={joinUrl}
+            size={160}
+            bgColor="transparent"
+            fgColor="#f5f3ff"
+            title="Scan with a phone camera to join this game"
+          />
+        </div>
+        <p className="host-lobby-code">
+          Room code: <strong>{roomCode}</strong>
         </p>
-      )}
-      <button type="button" className="btn btn-primary" onClick={onContinue} disabled={continuing}>
-        {continuing ? "Continuing…" : continueLabel}
-      </button>
+        <p className="host-lobby-status" role="status">
+          {describeStatus(connectionStatus)}
+        </p>
+        <a href={stageUrl} target="_blank" rel="noreferrer" className="btn btn-ghost">
+          Open Stage
+        </a>
+      </div>
+
+      <div className="invite-lobby-secondary">
+        <p className="invite-lobby-count" role="status">
+          {count} Player{count === 1 ? "" : "s"} Joined
+        </p>
+        {count > 0 && (
+          <ul className="invite-lobby-roster-list">
+            {visiblePlayers.map((player) => (
+              <li key={player.clientId}>{player.displayName}</li>
+            ))}
+            {remaining > 0 && <li className="invite-lobby-roster-more">+{remaining} more</li>}
+          </ul>
+        )}
+        {continueError && (
+          <p className="host-style-note" role="alert">
+            {continueError}
+          </p>
+        )}
+        <button type="button" className="btn btn-primary" onClick={onContinue} disabled={continuing}>
+          {continuing ? "Continuing…" : continueLabel}
+        </button>
+      </div>
     </div>
   );
 }
