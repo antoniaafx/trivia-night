@@ -44,7 +44,6 @@ function LandingPage() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: "easeOut" }}
       >
-        <span className="landing-eyebrow">Live trivia, made for a room full of people</span>
         <h1 className="landing-title">
           <span className="text-gradient">Trivia Night</span>
         </h1>
@@ -73,10 +72,6 @@ function LandingPage() {
             {hostError}
           </p>
         )}
-
-        <p className="landing-reassurance">
-          Free to play. Players just need a phone and a room code — no signup, ever.
-        </p>
       </motion.div>
     </div>
   );

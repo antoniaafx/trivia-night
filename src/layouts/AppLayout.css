@@ -35,14 +35,20 @@
   left: -100px;
 }
 
-.app-brand {
+.app-header {
   position: relative;
   z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin: var(--space-md) var(--space-md) 0;
+}
+
+.app-brand {
   display: inline-flex;
   align-items: center;
   gap: 0.6rem;
-  align-self: flex-start;
-  margin: var(--space-md) var(--space-md) 0;
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: 1.15rem;
@@ -58,6 +64,14 @@
   box-shadow: var(--shadow-glow-purple);
 }
 
+.app-settings-button {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+}
+
 .app-content {
   position: relative;
   z-index: 1;
@@ -67,7 +81,7 @@
 }
 
 @media (max-width: 640px) {
-  .app-brand {
+  .app-header {
     margin: var(--space-sm) var(--space-sm) 0;
   }
 }
