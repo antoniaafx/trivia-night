@@ -19,6 +19,21 @@
   color: var(--color-orange);
 }
 
+.my-decks-dev-tool {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--color-border);
+}
+
+.my-decks-dev-tool p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
 .my-decks-empty {
   display: flex;
   flex-direction: column;

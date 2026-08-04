@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useCreatorId } from "../hooks/useCreatorId";
 import { createDeck, deleteDeck, duplicateDeck, fetchDecksForCreator } from "../services/deckRepository";
 import { createHostedRoom } from "../services/hostFlow";
+import { importOfficialDemoDeck, officialDemoDeckStatus } from "../services/officialDemoDeck";
 import { formatApproximateMinutes } from "../utils/formatDuration";
 import LoadingScreen from "../components/LoadingScreen";
 import type { DeckSummary } from "../types/deck";
@@ -23,6 +24,15 @@ function MyDecksPage() {
   const [creating, setCreating] = useState(false);
   const [busyDeckId, setBusyDeckId] = useState<string | null>(null);
 
+  // Temporary developer control - see services/officialDemoDeck.ts. Only
+  // rendered while this browser's creator doesn't already have a complete
+  // copy, so it disappears on its own once used; to be removed entirely
+  // once the Official Demo Deck is confirmed visible in every environment
+  // that needs it.
+  const [demoDeckNeeded, setDemoDeckNeeded] = useState(false);
+  const [importingDemoDeck, setImportingDemoDeck] = useState(false);
+  const [demoDeckError, setDemoDeckError] = useState<string | null>(null);
+
   const loadDecks = useCallback(async () => {
     try {
       const result = await fetchDecksForCreator(creatorId);
@@ -36,6 +46,34 @@ function MyDecksPage() {
   useEffect(() => {
     void loadDecks();
   }, [loadDecks]);
+
+  useEffect(() => {
+    let cancelled = false;
+    officialDemoDeckStatus(creatorId)
+      .then((status) => {
+        if (!cancelled) setDemoDeckNeeded(status !== "complete");
+      })
+      .catch(() => {
+        // Non-critical: the control simply won't offer to fix itself if this check fails.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [creatorId, decks]);
+
+  async function handleImportDemoDeck() {
+    setImportingDemoDeck(true);
+    setDemoDeckError(null);
+    try {
+      await importOfficialDemoDeck(creatorId);
+      await loadDecks();
+      setDemoDeckNeeded(false);
+    } catch {
+      setDemoDeckError("Couldn't import the Official Demo Deck. Try again.");
+    } finally {
+      setImportingDemoDeck(false);
+    }
+  }
 
   async function handleCreate() {
     setCreating(true);
@@ -105,6 +143,27 @@ function MyDecksPage() {
         <p className="my-decks-error" role="alert">
           {error}
         </p>
+      )}
+
+      {demoDeckNeeded && (
+        <div className="my-decks-dev-tool">
+          <p>
+            Temporary developer tool: this browser doesn&rsquo;t have the Official Demo Deck yet.
+          </p>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => void handleImportDemoDeck()}
+            disabled={importingDemoDeck}
+          >
+            {importingDemoDeck ? "Importing…" : "Import Official Demo Deck"}
+          </button>
+          {demoDeckError && (
+            <p className="my-decks-error" role="alert">
+              {demoDeckError}
+            </p>
+          )}
+        </div>
       )}
 
       {decks && decks.length === 0 ? (
