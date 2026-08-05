@@ -1365,17 +1365,19 @@ function GameSetupPhase({
 /**
  * The Live Game Control Center - the screen a Host spends the entire
  * game actively watching, so it's held to a different standard than
- * every other phase: a true three-region layout (header / two-column
- * body / action footer) sized to the viewport itself, not a centred
- * card floating in .host-lobby's own generic padding (see
- * .live-game's own doc comment in the CSS for how it opts out of
- * that). Nothing about *what* the Host can do changed here - Start/
- * Pause/Resume Timer, Reveal Answer, and the correct-answer reveal are
- * the exact same controls and handlers QuestionPhase always had, only
- * regrouped: timer controls now sit under the Player Monitor (they're
- * about player progress, not question navigation), and the old
- * aggregate "4 / 5 answered" counter is now the actual Answered/
- * Waiting roster it was always summarizing.
+ * every other phase: a header plus a two-column body sized to the
+ * viewport itself, not a centred card floating in .host-lobby's own
+ * generic padding (see .live-game's own doc comment in the CSS for
+ * how it opts out of that). The Question Card is the complete
+ * interaction module - title, answer options, and the primary action
+ * all live inside the one card, instead of a separate page-level
+ * footer bar underneath it. Nothing about *what* the Host can do
+ * changed here - Start/Pause/Resume Timer, Reveal Answer, and the
+ * correct-answer reveal are the exact same controls and handlers
+ * QuestionPhase always had, only regrouped: timer controls sit under
+ * the Player Monitor (they're about player progress, not question
+ * navigation), and the old aggregate "4 / 5 answered" counter is now
+ * the actual Answered/Waiting roster it was always summarizing.
  */
 function QuestionPhase({
   question,
@@ -1446,50 +1448,57 @@ function QuestionPhase({
           never disagrees with what's on screen at any width - only the
           *visual* position of .live-game-monitor changes at the
           desktop breakpoint (see .live-game's own grid-template-areas
-          in the CSS), not its place in the document. */}
+          in the CSS), not its place in the document. The Question Card
+          is now the complete interaction module: a scrollable body
+          (title/options/error) plus a primary action area that's
+          always pinned to the card's own bottom edge, divided from the
+          body by a hairline rather than living in a separate
+          page-level footer. */}
       <section className="live-game-question" aria-label="Question">
-        <h2>{question.prompt}</h2>
+        <div className="live-game-question-body">
+          <h2>{question.prompt}</h2>
 
-        {question.answerMethod === "multiple_choice" ? (
-          <div className="live-game-answers">
-            {question.options.map((option, index) => (
-              <div
-                key={option.id}
-                className={`live-game-answer-card${option.id === question.correctOptionId ? " is-correct" : ""}`}
-              >
-                <span className="live-game-answer-letter" aria-hidden="true">
-                  {String.fromCharCode(65 + index)}
-                </span>
-                <span>{option.text}</span>
-                {option.id === question.correctOptionId && (
-                  <span className="live-game-answer-correct-tag">Correct</span>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="host-typed-answer-key">
-            <p>
-              Correct answer (Host only): <strong>{question.correctAnswer}</strong>
+          {question.answerMethod === "multiple_choice" ? (
+            <div className="live-game-answers">
+              {question.options.map((option, index) => (
+                <div
+                  key={option.id}
+                  className={`live-game-answer-card${option.id === question.correctOptionId ? " is-correct" : ""}`}
+                >
+                  <span className="live-game-answer-letter" aria-hidden="true">
+                    {String.fromCharCode(65 + index)}
+                  </span>
+                  <span>{option.text}</span>
+                  {option.id === question.correctOptionId && (
+                    <span className="live-game-answer-correct-tag">Correct</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="host-typed-answer-key">
+              <p>
+                Correct answer (Host only): <strong>{question.correctAnswer}</strong>
+              </p>
+              {question.acceptedAnswers.length > 0 && (
+                <p className="host-lobby-status">Also accepted: {question.acceptedAnswers.join(", ")}</p>
+              )}
+            </div>
+          )}
+
+          {revealError && (
+            <p className="host-style-note" role="alert">
+              {revealError}
             </p>
-            {question.acceptedAnswers.length > 0 && (
-              <p className="host-lobby-status">Also accepted: {question.acceptedAnswers.join(", ")}</p>
-            )}
-          </div>
-        )}
+          )}
+        </div>
 
-        {revealError && (
-          <p className="host-style-note" role="alert">
-            {revealError}
-          </p>
-        )}
+        <div className="live-game-question-actions">
+          <button type="button" className="btn btn-primary" onClick={onReveal} disabled={revealing}>
+            {revealing ? "Revealing…" : "Reveal Answer"}
+          </button>
+        </div>
       </section>
-
-      <div className="live-game-footer">
-        <button type="button" className="btn btn-primary" onClick={onReveal} disabled={revealing}>
-          {revealing ? "Revealing…" : "Reveal Answer"}
-        </button>
-      </div>
 
       <aside className="live-game-monitor" aria-label={isTeamMode ? "Teams" : "Players"}>
         <h3 className="live-game-monitor-title">{isTeamMode ? "Teams" : "Players"}</h3>

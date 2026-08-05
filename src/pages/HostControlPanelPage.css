@@ -66,9 +66,14 @@
    exactly as the brief's own mobile guidance allows. At the Dashboard's
    own 860px breakpoint (reused deliberately - one Host workspace
    breakpoint, not a competing one) this becomes a fixed-height, no-
-   scroll, three-region layout: the same --app-header-height/space-lg
-   arithmetic the fixed sidebar already uses, so it's exactly the
-   space actually available below the sticky navbar. */
+   scroll layout: a header row plus a two-column body (Player Monitor /
+   Question Card), the same --app-header-height/space-lg arithmetic the
+   fixed sidebar already uses, so it's exactly the space actually
+   available below the sticky navbar. There's no separate footer row -
+   the Question Card carries its own primary action internally (see
+   .live-game-question-actions), so both columns stretch to fill the
+   same "monitor question" row and read as one balanced two-column
+   surface instead of three stacked bands. */
 .live-game {
   width: 100%;
   max-width: var(--max-content-width);
@@ -76,7 +81,6 @@
   grid-template-areas:
     "header"
     "question"
-    "footer"
     "monitor";
   grid-template-columns: 1fr;
   gap: var(--space-sm);
@@ -131,17 +135,31 @@
   color: var(--color-orange);
 }
 
+/* The Question Card - now the complete interaction module (title,
+   answer options, and the primary action all live inside this one
+   card) rather than a card with a separate page-level footer bar
+   underneath it. Split into a body (which scrolls on its own at the
+   desktop breakpoint if the question genuinely doesn't fit) and an
+   actions area that stays put at the card's own bottom edge - see
+   .live-game-question-actions below for how the divider between them
+   is drawn. */
 .live-game-question {
   grid-area: question;
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
   min-height: 0;
   padding: var(--space-lg);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-soft);
+}
+
+.live-game-question-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-height: 0;
 }
 
 .live-game-question h2 {
@@ -205,33 +223,21 @@
   color: var(--color-teal);
 }
 
-/* Same surface as the navbar and the Dashboard/Invite Lobby's own
-   action bar (see .app-header and .host-dashboard-start-bar) - one
-   consistent "action bar" identity across the whole Host workspace,
-   not a one-off treatment just for this screen. Contains only the
-   single primary action for the current moment (Reveal Answer here;
-   RevealPhase's own Continue button, unchanged, plays the same role
-   one phase later). */
-.live-game-footer {
-  grid-area: footer;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 0.65rem var(--space-lg);
-  background: rgba(18, 14, 41, 0.45);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+/* The Question Card's primary action area - a hairline divider (not a
+   separate surface/background the way the old page-level footer bar
+   had one) is enough to read as "part of this card" rather than a bar
+   bolted on underneath it. RevealPhase's own Continue button,
+   unchanged, plays the same role one phase later. Full-width so the
+   button reads as the card's own bottom edge rather than a
+   right-aligned control floating in a bigger bar. */
+.live-game-question-actions {
+  flex-shrink: 0;
+  margin-top: var(--space-lg);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--color-border);
 }
 
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .live-game-footer {
-    background: rgba(18, 14, 41, 0.88);
-  }
-}
-
-.live-game-footer .btn {
+.live-game-question-actions .btn {
   width: 100%;
 }
 
@@ -351,13 +357,17 @@
     height: calc(100dvh - var(--app-header-height) - (2 * var(--space-lg)));
     grid-template-areas:
       "header header"
-      "monitor question"
-      "footer footer";
+      "monitor question";
     grid-template-columns: minmax(260px, 30%) 1fr;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: auto 1fr;
   }
 
-  .live-game-question {
+  /* Only the card's own body scrolls - the actions area stays pinned
+     to the card's bottom edge no matter how long the question/options
+     content gets, instead of the whole card (button included)
+     scrolling out of view. */
+  .live-game-question-body {
+    flex: 1;
     overflow-y: auto;
   }
 
@@ -369,14 +379,6 @@
      sizes fit without ever engaging this. */
   .live-game-monitor-list {
     overflow-y: auto;
-  }
-
-  .live-game-footer {
-    justify-content: flex-end;
-  }
-
-  .live-game-footer .btn {
-    width: auto;
   }
 }
 

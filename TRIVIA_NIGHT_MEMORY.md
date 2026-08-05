@@ -4,9 +4,9 @@
 
 - Core Host workspace (Invite Lobby → Game Setup/Dashboard → Live Question → Reveal → Leaderboard → Ended) is functional and has had multiple UX redesign passes.
 - Player join flow, Stage (big-screen) view, Deck Library/Editor, and Quick Play are functional and untouched in this session.
-- Major completed: unified Host workspace layout system (fixed left room panel + right panel + action footer/bar), Live Game Control Center redesign, Deck Library/Game Setup separation, Question Timer system.
+- Major completed: unified Host workspace layout system (fixed left room panel + right panel + action footer/bar), Live Game Control Center redesign, Question Card-as-interaction-module redesign (removed the Live Game's separate sticky footer; Reveal Answer now lives inside the Question Card itself), Deck Library/Game Setup separation, Question Timer system.
 - Known issue (flagged, not fixed): `teamReadinessProblem` (unassigned players in Team mode) has no visible surface after the Start Game footer was stripped to button-only; only shown via the disabled button state itself.
-- Current priority: none queued — last task (Live Game Control Center redesign) just completed and verified.
+- Current priority: none queued — last task (Question Card-as-interaction-module redesign) just completed and verified.
 
 ## 2. Architecture
 
@@ -27,7 +27,7 @@
 - Footers show **only the primary action button** — no redundant summary text, no "Ready" copy. A genuine action-failure message (`startError`) is shown as a conditional alert above the footer, not inside it.
 - Host Invite Lobby right panel reuses the exact Host Dashboard shell (`HostRoomPanel` shared component), header "HOST LOBBY / Waiting for Players", body = "Players Joining" (live count + avatar+name roster, correct singular/plural grammar, "+N more" truncation).
 - Deck cards: portrait `aspect-ratio: 3/4` (final, after reversals), identical filled/empty dimensions.
-- Live Game Control Center: 3-section layout (header / two-column body / action footer), fills viewport, no scroll on desktop. 30%/70% column split (Player Monitor / Question Panel). DOM order = header → question → footer → monitor (matches "Information Hierarchy" spec and keeps tab order sane); CSS `grid-template-areas` reorders visually per breakpoint, not DOM.
+- Live Game Control Center: header + two-column body, fills viewport, no scroll on desktop. 30%/70% column split (Player Monitor / Question Card). No separate page-level footer — the Question Card is the complete interaction module (title → answer options → hairline divider → primary action), so the action button lives inside the card, pinned to its own bottom edge (`.live-game-question-actions`), not a bar bolted underneath it. Both columns are grid-row-stretched to the same height, so removing the footer row made them read as one balanced two-column surface. DOM order = header → question (body, then actions) → monitor (matches "Information Hierarchy" spec and keeps tab order sane); CSS `grid-template-areas` reorders visually per breakpoint, not DOM. At the 860px breakpoint only `.live-game-question-body` scrolls if content overflows — the actions area never scrolls out of view.
 - Player Monitor replaces old aggregate "4/5 answered" counter with named Answered/Waiting rosters (✓/⏳ icon + text, never color alone); "✓ Everyone has answered" replaces an empty Waiting section. New Answered rows get a one-time fade+slide-in (`prefers-reduced-motion` respected).
 - Timer control (Start/Pause/Resume) lives under the Player Monitor, not the footer — it's about player progress, not question navigation.
 - Timer readout in the header is large (2.75rem), bold, with a purely-supplementary `.is-urgent` color accent at ≤10s (never the sole signal).
@@ -52,7 +52,7 @@
 
 **Host Dashboard (Game Setup)** — fixed left panel (with Back to Invite) + right panel (Room Status, Competition, Decks, Question Timer, Question Flow, Host Participation, Game Summary) + Start Game footer.
 
-**Live Game Control Center (`question` phase)** — header (question X of Y, category, large timer) / two-column body (Player Monitor left 30%, Question Panel right 70%) / Reveal Answer footer. No page scroll on desktop.
+**Live Game Control Center (`question` phase)** — header (question X of Y, category, large timer) / two-column body (Player Monitor left 30%, Question Card right 70%). Question Card is self-contained: title, answer options, divider, Reveal Answer button all inside the one card — no separate page-level footer. No page scroll on desktop.
 
 **Reveal / Leaderboard / Ended phases** — unchanged, original simple centered-card layout (`.host-phase`), out of scope for the redesign passes so far.
 
@@ -75,6 +75,7 @@
 - This test environment's Browser pane does not composite frames (screenshots fail; CSS transitions/animations do not tick; IntersectionObserver's own callback does not fire) — verify via `getBoundingClientRect`/`getComputedStyle` measurement, not screenshots or timing-dependent CSS.
 - Accessibility: never rely on color alone (✓/⏳ icons + text always paired); DOM/tab order must not contradict visual order except where explicitly reasoned through (Live Game's footer-before-monitor tab order tradeoff on desktop).
 - Do not fabricate features not backed by existing handlers/state (e.g., no "Previous Question" button was added — no such capability exists in the phase-transition table).
+- Live Game's primary action (Reveal Answer) intentionally has **no** separate footer surface anymore — it's a hairline-divided section inside `.live-game-question` itself (transparent background, same card radius/shadow as the rest of the card). Don't reintroduce a standalone `.live-game-footer`-style bar; if `RevealPhase`/etc. are ever redesigned to match, apply the same "action lives inside the card" pattern rather than a page-level bar.
 
 ## 8. Next Development Tasks
 
