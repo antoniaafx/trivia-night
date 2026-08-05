@@ -98,6 +98,24 @@
   }
 }
 
+/* Short viewports (phone landscape): height, not width, is the scarce
+   axis here, so this is keyed on max-height rather than max-width.
+   500px covers real landscape-phone heights (~375-430px), well clear
+   of any laptop/tablet/desktop viewport this card also renders at.
+   The column gaps (not the row gap between the two columns, which is
+   horizontal space here and irrelevant to height) are what actually
+   compress the vertical stack. */
+@media (max-height: 500px) {
+  .invite-qr {
+    width: 68px;
+  }
+
+  .invite-lobby-primary,
+  .invite-lobby-secondary {
+    gap: 0.4rem;
+  }
+}
+
 .host-lobby-code {
   font-size: 1.2rem;
 }
