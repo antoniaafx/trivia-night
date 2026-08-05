@@ -5,9 +5,11 @@ import { getQuestionById, QUESTIONS } from "../data/questions";
 import { computeAggregateReveal, computeWinners } from "../utils/scoring";
 import { findSectionForQuestion } from "../utils/gamePlan";
 import { formatCountdown } from "../utils/timer";
+import { buildJoinUrl } from "../utils/roomLinks";
 import LoadingScreen from "../components/LoadingScreen";
 import CompetitorLeaderboard from "../components/CompetitorLeaderboard";
 import GameSetupSummary from "../components/GameSetupSummary";
+import RoomQrCode from "../components/RoomQrCode";
 import type { GradedLike } from "../utils/scoring";
 import type { Competitor } from "../types/game";
 import { playerToCompetitor, teamToCompetitor } from "../types/game";
@@ -15,6 +17,43 @@ import "./StagePage.css";
 
 function questionNumber(questionId: string | null): number {
   return QUESTIONS.findIndex((question) => question.id === questionId) + 1;
+}
+
+/**
+ * Placeholder-simple stand-ins for the custom mascots planned later -
+ * an animal emoji per joined Player, not a name (the Stage is read
+ * from across a room, where an emoji reads faster than text - see the
+ * "no player names" requirement). Hashing clientId (not array index)
+ * keeps each Player's avatar stable across joins/leaves elsewhere in
+ * the list, rather than reshuffling everyone whenever the roster
+ * changes shape.
+ */
+const STAGE_AVATAR_EMOJIS = [
+  "🐼",
+  "🐸",
+  "🐧",
+  "🐰",
+  "🦊",
+  "🐻",
+  "🐨",
+  "🐯",
+  "🦁",
+  "🐮",
+  "🐷",
+  "🐵",
+  "🐶",
+  "🐱",
+  "🐹",
+  "🐺",
+];
+const STAGE_AVATAR_VISIBLE_LIMIT = 24;
+
+function avatarForClientId(clientId: string): string {
+  let hash = 0;
+  for (let i = 0; i < clientId.length; i++) {
+    hash = (hash * 31 + clientId.charCodeAt(i)) >>> 0;
+  }
+  return STAGE_AVATAR_EMOJIS[hash % STAGE_AVATAR_EMOJIS.length];
 }
 
 /**
@@ -75,16 +114,41 @@ function StagePage() {
   const competitors: Competitor[] = isTeamMode
     ? teams.map(teamToCompetitor)
     : scorablePlayers.map(playerToCompetitor);
+  const joinUrl = buildJoinUrl(window.location.origin, roomCode);
 
   return (
     <div className="stage">
       {room.phase === "lobby" && lobbyStage === "invite" && (
-        <>
-          <h1>Room {roomCode}</h1>
-          <p className="stage-status" role="status">
-            Waiting for players to join...
-          </p>
-        </>
+        <div className="stage-lobby-card">
+          <div className="stage-lobby-join">
+            <h1>Scan to Join</h1>
+            <div className="stage-qr">
+              <RoomQrCode joinUrl={joinUrl} size={160} />
+            </div>
+            <p className="stage-room-code">
+              Room Code: <strong>{roomCode}</strong>
+            </p>
+          </div>
+
+          <div className="stage-lobby-players">
+            <p className="stage-eyebrow">Players Joining</p>
+            {scorablePlayers.length > 0 && (
+              <div className="stage-avatar-row" aria-hidden="true">
+                {scorablePlayers.slice(0, STAGE_AVATAR_VISIBLE_LIMIT).map((player) => (
+                  <span key={player.clientId}>{avatarForClientId(player.clientId)}</span>
+                ))}
+              </div>
+            )}
+            <div role="status">
+              <p className="stage-player-count">
+                {scorablePlayers.length} Player{scorablePlayers.length === 1 ? "" : "s"} Connected
+              </p>
+              <p className="stage-status">
+                {scorablePlayers.length === 0 ? "Waiting for players to join..." : "Waiting for the host to begin..."}
+              </p>
+            </div>
+          </div>
+        </div>
       )}
 
       {room.phase === "lobby" && lobbyStage !== "invite" && (

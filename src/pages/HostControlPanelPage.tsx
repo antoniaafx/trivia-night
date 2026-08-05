@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { QRCodeSVG } from "qrcode.react";
 import { useClientId } from "../hooks/useClientId";
 import { useCreatorId } from "../hooks/useCreatorId";
 import { useRoomChannel } from "../hooks/useRoomChannel";
@@ -21,6 +20,7 @@ import { QUESTION_TIMER_SECONDS_DEFAULT } from "../config/timingEstimates";
 import { buildJoinUrl, buildStageUrl } from "../utils/roomLinks";
 import { fetchDecksWithQuestions } from "../services/deckRepository";
 import PlayerList from "../components/PlayerList";
+import RoomQrCode from "../components/RoomQrCode";
 import LoadingScreen from "../components/LoadingScreen";
 import CompetitorLeaderboard from "../components/CompetitorLeaderboard";
 import GameSetupPanel, { type DeckEntry } from "../components/GameSetupPanel";
@@ -426,13 +426,7 @@ function HostControlPanelPage() {
         />
       ) : (
         <div className="host-lobby-invite card">
-          <QRCodeSVG
-            value={joinUrl}
-            size={180}
-            bgColor="transparent"
-            fgColor="#f5f3ff"
-            title="Scan with a phone camera to join this game"
-          />
+          <RoomQrCode joinUrl={joinUrl} size={180} />
           <p className="host-lobby-code">
             Room code: <strong>{roomCode}</strong>
           </p>
@@ -705,13 +699,7 @@ function InviteLobbyCard({
     <div className="invite-lobby-card card">
       <div className="invite-lobby-primary">
         <div className="invite-qr">
-          <QRCodeSVG
-            value={joinUrl}
-            size={160}
-            bgColor="transparent"
-            fgColor="#f5f3ff"
-            title="Scan with a phone camera to join this game"
-          />
+          <RoomQrCode joinUrl={joinUrl} size={160} />
         </div>
         <p className="host-lobby-code">
           Room code: <strong>{roomCode}</strong>
