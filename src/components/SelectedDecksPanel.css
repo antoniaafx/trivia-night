@@ -1,0 +1,185 @@
+.selected-decks-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  text-align: left;
+}
+
+.selected-decks-empty,
+.selected-decks-count {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.selected-decks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: var(--space-sm);
+}
+
+/* Portrait, playing-card-like proportions, identical for a filled slot
+   and the empty "+" placeholder - selecting/removing a Deck only ever
+   changes what's drawn inside a card, never the card's own footprint,
+   so the grid never jumps. */
+.selected-deck-card,
+.selected-deck-add-card {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-sm);
+}
+
+.selected-deck-card {
+  padding: 0.6rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.selected-deck-card-remove {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-strong, var(--color-surface));
+  color: var(--color-orange);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  /* Visual size stays small so it doesn't dominate a compact card, but
+     the actual hit area meets the 44x44 touch-target minimum. */
+  --tap-pad: 8px;
+}
+
+.selected-deck-card-remove::before {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * var(--tap-pad));
+}
+
+.selected-deck-card-remove:hover {
+  filter: brightness(1.15);
+}
+
+.selected-deck-card-remove:focus-visible {
+  outline: 3px solid var(--color-yellow);
+  outline-offset: 2px;
+}
+
+.selected-deck-card-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.5rem 0.35rem 0;
+  text-align: center;
+}
+
+.selected-deck-card-title {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 0.9rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.selected-deck-card-meta {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.selected-deck-card-reorder {
+  display: flex;
+  justify-content: center;
+  gap: 0.4rem;
+}
+
+/* Visual size stays small so the row doesn't dominate a compact card,
+   but each button's actual hit area meets the 44x44 touch-target
+   minimum via its own ::before (same technique as the remove button). */
+.selected-deck-card-icon-btn {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-strong, var(--color-surface));
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.selected-deck-card-icon-btn::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+}
+
+.selected-deck-card-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.selected-deck-card-icon-btn:not(:disabled):hover {
+  filter: brightness(1.15);
+}
+
+.selected-deck-card-icon-btn:focus-visible {
+  outline: 3px solid var(--color-yellow);
+  outline-offset: 2px;
+}
+
+.selected-deck-add-card {
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  border: 2px dashed var(--color-border);
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.selected-deck-add-card-icon {
+  font-size: 1.5rem;
+  font-family: var(--font-heading);
+  line-height: 1;
+}
+
+.selected-deck-add-card-label {
+  font-size: 0.78rem;
+}
+
+.selected-deck-add-card:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.selected-deck-add-card:not(:disabled):hover {
+  border-color: var(--color-teal);
+  color: var(--color-teal);
+}
+
+.selected-deck-add-card:focus-visible {
+  outline: 3px solid var(--color-yellow);
+  outline-offset: 2px;
+}

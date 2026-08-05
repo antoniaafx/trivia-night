@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
 import { useClientId } from "../hooks/useClientId";
 import { useCreatorId } from "../hooks/useCreatorId";
@@ -7,25 +7,28 @@ import { useGameRoom } from "../hooks/useGameRoom";
 import { useAutosaveController, type SaveStatus } from "../hooks/useAutosaveController";
 import { useCountdown } from "../hooks/useCountdown";
 import { formatCountdown } from "../utils/timer";
-import { getNextQuestionId, getQuestionById, type Question, type TypedAnswerQuestion } from "../data/questions";
+import { getNextQuestionId, getQuestionById, QUESTIONS, type Question, type TypedAnswerQuestion } from "../data/questions";
 import { computeAggregateReveal, computeWinners } from "../utils/scoring";
 import {
+  computePlanSummary,
   findSectionForQuestion,
   QUESTION_FLOW_DEFAULT,
   type HostParticipation,
+  type PlannedGamePlanSummary,
   type QuestionFlow,
   type RoomDeckSnapshot,
 } from "../utils/gamePlan";
-import { QUESTION_TIMER_SECONDS_DEFAULT } from "../config/timingEstimates";
+import { QUESTION_TIMER_OPTIONS_SECONDS, QUESTION_TIMER_SECONDS_DEFAULT } from "../config/timingEstimates";
 import { buildJoinUrl, buildStageUrl } from "../utils/roomLinks";
+import { avatarForClientId } from "../utils/avatars";
 import { fetchDecksWithQuestions } from "../services/deckRepository";
-import PlayerList from "../components/PlayerList";
 import RoomQrCode from "../components/RoomQrCode";
 import LoadingScreen from "../components/LoadingScreen";
 import CompetitorLeaderboard from "../components/CompetitorLeaderboard";
-import GameSetupPanel, { type DeckEntry } from "../components/GameSetupPanel";
+import SelectedDecksPanel from "../components/SelectedDecksPanel";
 import DeckPicker from "../components/DeckPicker";
 import type { RoomPlayer } from "../types/room";
+import type { DeckEntry } from "../types/deck";
 import type {
   AnswerRecord,
   CompetitionStyle,
@@ -413,7 +416,7 @@ function HostControlPanelPage() {
 
   return (
     <div className="host-lobby">
-      {room.phase === "lobby" && lobbyStage === "invite" ? (
+      {room.phase === "lobby" && lobbyStage === "invite" && (
         <InviteLobbyCard
           roomCode={roomCode}
           joinUrl={joinUrl}
@@ -424,23 +427,14 @@ function HostControlPanelPage() {
           continuing={stageBusy}
           continueError={stageError}
         />
-      ) : (
-        <div className="host-lobby-invite card">
-          <RoomQrCode joinUrl={joinUrl} size={180} />
-          <p className="host-lobby-code">
-            Room code: <strong>{roomCode}</strong>
-          </p>
-          <p className="host-lobby-status" role="status">
-            {describeStatus(connectionStatus)}
-          </p>
-          <a href={stageUrl} target="_blank" rel="noreferrer" className="btn btn-ghost">
-            Open Stage
-          </a>
-        </div>
       )}
 
       {room.phase === "lobby" && lobbyStage === "setup" && room.deckSnapshot && (
         <GameSetupPhase
+          roomCode={roomCode}
+          joinUrl={joinUrl}
+          stageUrl={stageUrl}
+          connectionStatus={connectionStatus}
           competitionStyle={room.competitionStyle}
           onChangeStyle={(style) => void handleChangeStyle(style)}
           styleError={styleError}
@@ -466,6 +460,21 @@ function HostControlPanelPage() {
           starting={starting}
           startError={startError}
         />
+      )}
+
+      {!(room.phase === "lobby" && (lobbyStage === "invite" || lobbyStage === "setup")) && (
+        <div className="host-lobby-invite card">
+          <RoomQrCode joinUrl={joinUrl} size={180} />
+          <p className="host-lobby-code">
+            Room code: <strong>{roomCode}</strong>
+          </p>
+          <p className="host-lobby-status" role="status">
+            {describeStatus(connectionStatus)}
+          </p>
+          <a href={stageUrl} target="_blank" rel="noreferrer" className="btn btn-ghost">
+            Open Stage
+          </a>
+        </div>
       )}
 
       {room.phase === "question" && question && (
@@ -555,7 +564,7 @@ function CompetitionStylePicker({
 }) {
   return (
     <fieldset className="host-style-picker">
-      <legend>Competition Style</legend>
+      <legend className="sr-only-label">Competition Style</legend>
       <label>
         <input
           type="radio"
@@ -564,7 +573,7 @@ function CompetitionStylePicker({
           checked={value === "team"}
           onChange={() => onChange("team")}
         />
-        Team Play
+        Teams
       </label>
       <label>
         <input
@@ -574,7 +583,7 @@ function CompetitionStylePicker({
           checked={value === "solo"}
           onChange={() => onChange("solo")}
         />
-        Solo Play
+        Solo
       </label>
     </fieldset>
   );
@@ -584,11 +593,11 @@ function SetupSaveStatusBadge({ status, onRetry }: { status: SaveStatus; onRetry
   if (status === "idle") return null;
   return (
     <p className="host-setup-save-status" role="status">
-      {status === "saving" && "Saving setup…"}
-      {status === "saved" && "Setup saved"}
+      {status === "saving" && "Saving..."}
+      {status === "saved" && "✓ Saved"}
       {status === "error" && (
         <>
-          Couldn&rsquo;t save setup.{" "}
+          Couldn&rsquo;t save.{" "}
           <button type="button" className="host-setup-retry" onClick={onRetry}>
             Retry
           </button>
@@ -738,53 +747,253 @@ function InviteLobbyCard({
 }
 
 /**
+ * One row of the settings dashboard, not an independent floating card -
+ * see .host-dashboard-panel's doc comment in the CSS for why these are
+ * deliberately rows within one shared surface (a divider between each,
+ * not their own background/border/shadow apiece). Adding a future
+ * setting (difficulty, power-ups, custom rules, ...) is just another
+ * DashboardCard here; no new card chrome to design each time.
+ */
+function DashboardCard({ title, helperText, children }: { title: string; helperText: string; children: ReactNode }) {
+  return (
+    <section className="host-dashboard-section">
+      <h3>{title}</h3>
+      {children}
+      <p className="host-dashboard-section-helper">{helperText}</p>
+    </section>
+  );
+}
+
+/**
+ * Everything that used to be split across the sidebar's Player
+ * Status/Team Status blocks, now one section inside the dashboard -
+ * the sidebar is permanent room info only (QR, code, Open Stage); live
+ * room state belongs here, in exactly one place. Solo mode shows a flat
+ * avatar+name roster; Team mode groups the same Players by Team, plus a
+ * "Waiting for Team" group for anyone unassigned. All from data this
+ * component already holds (presence
+ * `joinedPlayers` for the live count, DB-backed `teamPlayers` for Team
+ * assignment) - no new subscriptions.
+ */
+function RoomStatusSection({
+  competitionStyle,
+  joinedPlayers,
+  teams,
+  teamPlayers,
+}: {
+  competitionStyle: CompetitionStyle;
+  joinedPlayers: RoomPlayer[];
+  teams: TeamRecord[];
+  teamPlayers: PlayerRecord[];
+}) {
+  const unassigned = teamPlayers.filter((player) => !player.teamId);
+
+  return (
+    <section className="host-dashboard-section">
+      <h3>Room Status</h3>
+      <p className="host-room-status-count" role="status">
+        {joinedPlayers.length} Player{joinedPlayers.length === 1 ? "" : "s"} Connected
+      </p>
+
+      {competitionStyle === "team" ? (
+        <>
+          <p className="host-room-status-count">
+            {teams.length} Team{teams.length === 1 ? "" : "s"} Formed
+          </p>
+          {teams.map((team) => (
+            <div className="host-room-status-group" key={team.id}>
+              <p className="host-room-status-group-name">{team.name}</p>
+              <ul className="host-room-status-roster">
+                {teamPlayers
+                  .filter((player) => player.teamId === team.id)
+                  .map((player) => (
+                    <li key={player.clientId}>
+                      <span aria-hidden="true">{avatarForClientId(player.clientId)}</span> {player.displayName}
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          ))}
+          {unassigned.length > 0 && (
+            <div className="host-room-status-group">
+              <p className="host-room-status-group-name">Waiting for Team</p>
+              <ul className="host-room-status-roster">
+                {unassigned.map((player) => (
+                  <li key={player.clientId}>
+                    <span aria-hidden="true">{avatarForClientId(player.clientId)}</span> {player.displayName}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      ) : (
+        <ul className="host-room-status-roster">
+          {joinedPlayers.map((player) => (
+            <li key={player.clientId}>
+              <span aria-hidden="true">{avatarForClientId(player.clientId)}</span> {player.displayName}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
  * Values are architected around deck-ownership-aware scoring that isn't
  * implemented yet (see HostParticipation's doc comment in gamePlan.ts) -
- * this milestone only adds the field, its realtime sync, and this
- * explanatory note.
+ * this milestone only adds the field and its realtime sync.
  */
-function HostParticipationToggle({
+function HostParticipationPicker({
   value,
   onChange,
 }: {
   value: HostParticipation;
   onChange: (value: HostParticipation) => void;
 }) {
-  const isPlaying = value === "playing_host";
   return (
-    <div className="host-lobby-setup card">
-      <h3>Host Participation</h3>
-      <label className="host-participation-toggle">
+    <fieldset className="host-style-picker">
+      <legend className="sr-only-label">Host Participation</legend>
+      <label>
         <input
-          type="checkbox"
-          checked={isPlaying}
-          onChange={(event) => onChange(event.target.checked ? "playing_host" : "host_only")}
+          type="radio"
+          name="host-participation"
+          checked={value === "playing_host"}
+          onChange={() => onChange("playing_host")}
         />
-        {isPlaying ? "I'm Playing Too" : "Dedicated Host"}
+        Host Plays
       </label>
-      {isPlaying && (
-        <p className="host-lobby-status">
-          Playing-host rules will depend on whether the host already knows the Deck answers.
-        </p>
-      )}
-    </div>
+      <label>
+        <input
+          type="radio"
+          name="host-participation"
+          checked={value === "host_only"}
+          onChange={() => onChange("host_only")}
+        />
+        Host Doesn&rsquo;t Play
+      </label>
+    </fieldset>
+  );
+}
+
+function QuestionTimerSelect({
+  value,
+  onChange,
+}: {
+  value: number | null;
+  onChange: (value: number | null) => void;
+}) {
+  return (
+    <select
+      className="host-dashboard-select"
+      aria-label="Question Timer"
+      value={value === null ? "none" : String(value)}
+      onChange={(event) => onChange(event.target.value === "none" ? null : Number(event.target.value))}
+    >
+      <option value="none">No Timer</option>
+      {QUESTION_TIMER_OPTIONS_SECONDS.map((seconds) => (
+        <option key={seconds} value={seconds}>
+          {seconds} Seconds
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function QuestionFlowPicker({ value, onChange }: { value: QuestionFlow; onChange: (value: QuestionFlow) => void }) {
+  return (
+    <fieldset className="host-style-picker">
+      <legend className="sr-only-label">Question Flow</legend>
+      <label>
+        <input
+          type="radio"
+          name="question-flow"
+          checked={value === "host_controlled"}
+          onChange={() => onChange("host_controlled")}
+        />
+        Host Controlled
+      </label>
+      <label>
+        <input type="radio" name="question-flow" checked={value === "automatic"} onChange={() => onChange("automatic")} />
+        Automatic
+      </label>
+    </fieldset>
+  );
+}
+
+/**
+ * Updates live as the Host changes any setting above - a final,
+ * easy-to-scan overview before Start Game, never a separate
+ * confirmation step. Key/value rather than a bullet list, on purpose:
+ * each row pairs a fixed label with the value it currently holds, the
+ * same shape as the settings above it, not restated as a sentence.
+ */
+function GameSummaryCard({
+  planSummary,
+  competitionStyle,
+  questionTimerSeconds,
+  questionFlow,
+  hostParticipation,
+}: {
+  planSummary: PlannedGamePlanSummary;
+  competitionStyle: CompetitionStyle;
+  questionTimerSeconds: number | null;
+  questionFlow: QuestionFlow;
+  hostParticipation: HostParticipation;
+}) {
+  const deckLabel = planSummary.deckCount === 0 ? "Quick Play" : `${planSummary.deckCount} Selected`;
+  // planSummary is computed purely from selected Decks (see
+  // computePlanSummary) and is empty for Quick Play, which plays the
+  // hardcoded QUESTIONS list instead - reading its real length here
+  // rather than showing planSummary's (correct-but-misleading, for
+  // Quick Play) 0.
+  const questionCount = planSummary.deckCount === 0 ? QUESTIONS.length : planSummary.questionCount;
+
+  const rows: [string, string][] = [
+    ["Competition", competitionStyle === "team" ? "Teams" : "Solo"],
+    ["Decks", deckLabel],
+    ["Questions", String(questionCount)],
+    ["Question Timer", questionTimerSeconds === null ? "No Timer" : `${questionTimerSeconds} Seconds`],
+    ["Question Flow", questionFlow === "host_controlled" ? "Host Controlled" : "Automatic"],
+    ["Host", hostParticipation === "playing_host" ? "Host Playing" : "Dedicated Host"],
+  ];
+
+  return (
+    <section className="host-dashboard-section host-dashboard-summary">
+      <h3>Game Summary</h3>
+      <dl className="host-dashboard-summary-list">
+        {rows.map(([label, value]) => (
+          <div className="host-dashboard-summary-row" key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }
 
 /**
  * Stage 2 - the only remaining pre-game stage, and the last stop before
  * gameplay: configuring the game (or, for a Play-Again rematch, just
- * reviewing the locked plan) while the player count and roster stay
- * visible the whole time. Everything here (Decks, Question Timer,
- * Question Flow, competition style, Host Participation) remains
- * live-editable right up until Start Game is pressed - there is no
- * separate confirmation checkpoint. Start Game is what validates,
+ * reviewing the locked plan). Laid out as a dashboard rather than one
+ * long form: a persistent left sidebar (join info, readiness, Start
+ * Game) stays visible the whole time, while the right side breaks
+ * every configurable option into its own card. Everything here (Decks,
+ * Question Timer, Question Flow, competition style, Host Participation)
+ * remains live-editable right up until Start Game is pressed - there is
+ * no separate confirmation checkpoint. Start Game is what validates,
  * freezes, and locks the final Game Plan (see migration 0007 - that's
  * also the moment competition style locks). Back to Invite is a pure
  * view toggle back to the QR screen; it never touches anything already
  * configured here.
  */
 function GameSetupPhase({
+  roomCode,
+  joinUrl,
+  stageUrl,
+  connectionStatus,
   competitionStyle,
   onChangeStyle,
   styleError,
@@ -810,6 +1019,10 @@ function GameSetupPhase({
   starting,
   startError,
 }: {
+  roomCode: string;
+  joinUrl: string;
+  stageUrl: string;
+  connectionStatus: string;
   competitionStyle: CompetitionStyle;
   onChangeStyle: (style: CompetitionStyle) => void;
   styleError: string | null;
@@ -846,145 +1059,164 @@ function GameSetupPhase({
   const startBlockedReason =
     teamReadinessProblem ?? (!isRematch && setupStatus === "saving" ? "Saving the latest setup…" : null);
 
+  // Computed once here (not inside SelectedDecksPanel) so this exact
+  // same summary can also drive the Game Summary card below without
+  // running the same computation twice or risking the two drifting.
+  const entryById = new Map((availableDecks ?? []).map((entry) => [entry.deck.id, entry]));
+  const selectedEntries = setupSelectedDeckIds
+    .map((id) => entryById.get(id))
+    .filter((entry): entry is DeckEntry => entry !== undefined);
+  const planSummary = computePlanSummary(
+    selectedEntries.map(({ deck, questions }) => ({ deckId: deck.id, deckTitle: deck.title, questions })),
+  );
+
+  const questionFlowHelperText =
+    setupQuestionFlow === "host_controlled"
+      ? "The Host manually starts each question timer when everyone is ready."
+      : "The timer begins automatically as soon as the next question appears.";
+
   return (
-    <div className="host-phase card">
-      <p className="host-phase-label">Game Setup</p>
-
-      <p className="host-setup-player-count" role="status">
-        👥 {joinedPlayers.length} Player{joinedPlayers.length === 1 ? "" : "s"} Connected
-      </p>
-      <details className="host-setup-roster">
-        <summary>{competitionStyle === "team" ? "View teams" : "View players"}</summary>
-        {competitionStyle === "team" ? (
-          <TeamRoster teams={teams} players={teamPlayers} />
-        ) : (
-          <PlayerList players={joinedPlayers} emptyMessage="Waiting for players to join..." />
-        )}
-      </details>
-
-      {isRematch ? (
-        <>
-          <RematchSummary plan={deckSnapshot} />
-          <p className="host-lobby-status">
-            Competition: <strong>{competitionStyle === "team" ? "Teams" : "Solo"}</strong>
-          </p>
-          <p className="host-lobby-status">
-            Host: <strong>{hostParticipation === "playing_host" ? "Playing" : "Dedicated Host"}</strong>
-          </p>
-        </>
-      ) : (
-        <>
-          <CompetitionStylePicker value={competitionStyle} onChange={onChangeStyle} />
-          {styleError && (
-            <p className="host-style-note" role="alert">
-              {styleError}
-            </p>
-          )}
-
-          <div className="host-lobby-setup">
-            <div className="host-lobby-setup-header">
-              <h3>Decks</h3>
-              <SetupSaveStatusBadge status={setupStatus} onRetry={onRetrySetup} />
-            </div>
-            {availableDecks === null ? (
-              <p className="host-lobby-status">Loading your Decks...</p>
-            ) : (
-              <GameSetupPanel
-                availableDecks={availableDecks}
-                selectedDeckIds={setupSelectedDeckIds}
-                onChangeSelection={onChangeSelection}
-                onOpenPicker={() => setPickerOpen(true)}
-                questionTimerSeconds={setupQuestionTimerSeconds}
-                onChangeQuestionTimer={onChangeQuestionTimer}
-                questionFlow={setupQuestionFlow}
-                onChangeQuestionFlow={onChangeQuestionFlow}
-              />
-            )}
-          </div>
-
-          <HostParticipationToggle value={hostParticipation} onChange={onSetHostParticipation} />
-
-          <DeckPicker
-            open={pickerOpen}
-            decks={availableDecks}
-            selectedDeckIds={setupSelectedDeckIds}
-            onChangeSelection={onChangeSelection}
-            onClose={() => setPickerOpen(false)}
-          />
-        </>
-      )}
-
-      {!isRematch && (
-        <>
-          {returnError && (
-            <p className="host-style-note" role="alert">
-              {returnError}
-            </p>
-          )}
+    <div className="host-dashboard">
+      <aside className="host-dashboard-sidebar card">
+        {!isRematch && (
           <button
             type="button"
-            className="btn btn-ghost"
+            className="btn btn-ghost host-dashboard-back"
             onClick={onReturnToInvite}
             disabled={returningToInvite || starting}
           >
-            {returningToInvite ? "Returning…" : "Back to Invite"}
+            {returningToInvite ? "Returning…" : "‹ Back to Invite"}
           </button>
-        </>
-      )}
+        )}
+        {returnError && (
+          <p className="host-style-note" role="alert">
+            {returnError}
+          </p>
+        )}
 
-      {startBlockedReason && (
-        <p className="host-style-note" role="alert">
-          {startBlockedReason}
+        <div className="invite-qr">
+          <RoomQrCode joinUrl={joinUrl} size={110} />
+        </div>
+        <p className="host-lobby-code">
+          Room Code: <strong>{roomCode}</strong>
         </p>
-      )}
-      {startError && (
-        <p className="host-style-note" role="alert">
-          {startError}
+        <p className="host-sidebar-live" role="status">
+          <span className="host-sidebar-live-dot" aria-hidden="true" />
+          {connectionStatus === "connected" ? "Live" : describeStatus(connectionStatus)}
         </p>
-      )}
-      <button
-        type="button"
-        className="btn btn-primary"
-        onClick={onStart}
-        disabled={startBlockedReason !== null || starting || returningToInvite}
-      >
-        {starting ? "Starting…" : isRematch ? "Start Rematch" : "Start Game"}
-      </button>
-    </div>
-  );
-}
 
-function TeamRoster({ teams, players }: { teams: TeamRecord[]; players: PlayerRecord[] }) {
-  const unassigned = players.filter((player) => player.teamId === null);
+        <a href={stageUrl} target="_blank" rel="noreferrer" className="btn btn-ghost">
+          Open Stage
+        </a>
+      </aside>
 
-  return (
-    <div className="host-lobby-roster">
-      <h2>
-        {teams.length} team{teams.length === 1 ? "" : "s"}
-      </h2>
-      {teams.length === 0 ? (
-        <p className="competitor-leaderboard-empty">Waiting for teams to form...</p>
-      ) : (
-        <ul className="host-team-roster">
-          {teams.map((team) => (
-            <li key={team.id}>
-              <p className="host-team-roster-name">{team.name}</p>
-              <ul className="host-team-roster-members">
-                {players
-                  .filter((player) => player.teamId === team.id)
-                  .map((player) => (
-                    <li key={player.clientId}>{player.displayName}</li>
-                  ))}
-              </ul>
-            </li>
-          ))}
-        </ul>
-      )}
-      {unassigned.length > 0 && (
-        <p className="host-lobby-status">
-          {unassigned.length} player{unassigned.length === 1 ? "" : "s"} still choosing a team
-        </p>
-      )}
+      <div className="host-dashboard-main">
+        <div className="host-dashboard-panel card">
+          <div className="host-dashboard-header">
+            <div>
+              <p className="host-dashboard-eyebrow">Host Dashboard</p>
+              <h2>Preparing Today&rsquo;s Game</h2>
+            </div>
+            {!isRematch && <SetupSaveStatusBadge status={setupStatus} onRetry={onRetrySetup} />}
+          </div>
+
+          <RoomStatusSection
+            competitionStyle={competitionStyle}
+            joinedPlayers={joinedPlayers}
+            teams={teams}
+            teamPlayers={teamPlayers}
+          />
+
+          {isRematch ? (
+            <>
+              <RematchSummary plan={deckSnapshot} />
+              <p className="host-lobby-status">
+                Competition: <strong>{competitionStyle === "team" ? "Teams" : "Solo"}</strong>
+              </p>
+              <p className="host-lobby-status">
+                Host: <strong>{hostParticipation === "playing_host" ? "Playing" : "Dedicated Host"}</strong>
+              </p>
+            </>
+          ) : (
+            <>
+              <DashboardCard title="Competition" helperText="Choose whether players compete individually or in teams.">
+                <CompetitionStylePicker value={competitionStyle} onChange={onChangeStyle} />
+                {styleError && (
+                  <p className="host-style-note" role="alert">
+                    {styleError}
+                  </p>
+                )}
+              </DashboardCard>
+
+              <DashboardCard title="Decks" helperText="Select one or more decks to build your trivia game.">
+                {availableDecks === null ? (
+                  <p className="host-lobby-status">Loading your Decks...</p>
+                ) : (
+                  <SelectedDecksPanel
+                    availableDecks={availableDecks}
+                    selectedDeckIds={setupSelectedDeckIds}
+                    onChangeSelection={onChangeSelection}
+                    onOpenPicker={() => setPickerOpen(true)}
+                    planSummary={planSummary}
+                  />
+                )}
+              </DashboardCard>
+
+              <DashboardCard title="Question Timer" helperText="Sets the time players have to answer each question.">
+                <QuestionTimerSelect value={setupQuestionTimerSeconds} onChange={onChangeQuestionTimer} />
+              </DashboardCard>
+
+              <DashboardCard title="Question Flow" helperText={questionFlowHelperText}>
+                <QuestionFlowPicker value={setupQuestionFlow} onChange={onChangeQuestionFlow} />
+              </DashboardCard>
+
+              <DashboardCard
+                title="Host Participation"
+                helperText="Choose whether the Host joins the game as a player or simply runs the trivia."
+              >
+                <HostParticipationPicker value={hostParticipation} onChange={onSetHostParticipation} />
+              </DashboardCard>
+
+              <GameSummaryCard
+                planSummary={planSummary}
+                competitionStyle={competitionStyle}
+                questionTimerSeconds={setupQuestionTimerSeconds}
+                questionFlow={setupQuestionFlow}
+                hostParticipation={hostParticipation}
+              />
+
+              <DeckPicker
+                open={pickerOpen}
+                decks={availableDecks}
+                selectedDeckIds={setupSelectedDeckIds}
+                onChangeSelection={onChangeSelection}
+                onClose={() => setPickerOpen(false)}
+              />
+            </>
+          )}
+
+          {/* Last row of the same panel (not a separate floating card) -
+              its sticky range is bounded by the panel itself, so it can
+              never drift over content outside it or cover the Game
+              Summary rows above once they've scrolled into view. */}
+          <div className="host-dashboard-start-bar">
+            <p
+              className={startBlockedReason || startError ? "host-style-note" : "host-dashboard-start-readiness"}
+              role={startBlockedReason || startError ? "alert" : undefined}
+            >
+              {startBlockedReason ?? startError ?? "✓ Ready to Start"}
+            </p>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={onStart}
+              disabled={startBlockedReason !== null || starting || returningToInvite}
+            >
+              {starting ? "Starting…" : isRematch ? "Start Rematch" : "Start Game"}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

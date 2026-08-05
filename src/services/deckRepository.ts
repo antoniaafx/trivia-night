@@ -3,7 +3,7 @@ import { computeAppendPosition, computeInsertAfterPosition, normalizedPositions 
 import { isQuestionComplete } from "../utils/deckValidation";
 import { QUESTION_SECONDS_ESTIMATE } from "../config/timingEstimates";
 import type { AnswerMethod, QuestionOption } from "../data/questions";
-import type { DeckQuestionRecord, DeckRecord, DeckSummary } from "../types/deck";
+import type { DeckEntry, DeckQuestionRecord, DeckRecord, DeckSummary } from "../types/deck";
 
 /**
  * All Postgres reads/writes for Deck authoring live here, separate from
@@ -66,9 +66,7 @@ function mapDeckQuestionRow(row: DeckQuestionRow): DeckQuestionRecord {
 }
 
 /** Every Deck the creator owns, each paired with its full (ordered) Question list - the shape Game Setup's readiness/picker logic needs. */
-export async function fetchDecksWithQuestions(
-  creatorId: string,
-): Promise<{ deck: DeckRecord; questions: DeckQuestionRecord[] }[]> {
+export async function fetchDecksWithQuestions(creatorId: string): Promise<DeckEntry[]> {
   const { data: deckRows, error: decksError } = await supabase
     .from("decks")
     .select("*")

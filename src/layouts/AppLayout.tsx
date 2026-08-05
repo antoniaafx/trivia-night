@@ -9,16 +9,18 @@ function AppLayout() {
     <div className="app-shell">
       <ConfigWarning />
       <div className="app-header">
-        <Link to="/" className="app-brand">
-          <span className="app-brand-dot" aria-hidden="true" />
-          Trivia Night
-        </Link>
-        {/* Placeholder only - no settings page exists yet. A clean stock
-            icon for now; swap for a custom hand-drawn version during the
-            visual redesign. */}
-        <button type="button" className="btn btn-ghost app-settings-button" aria-label="Settings">
-          <Settings size={20} strokeWidth={2.25} />
-        </button>
+        <div className="app-header-inner container">
+          <Link to="/" className="app-brand">
+            <span className="app-brand-dot" aria-hidden="true" />
+            Trivia Night
+          </Link>
+          {/* Placeholder only - no settings page exists yet. A clean stock
+              icon for now; swap for a custom hand-drawn version during the
+              visual redesign. */}
+          <button type="button" className="btn btn-ghost app-settings-button" aria-label="Settings">
+            <Settings size={20} strokeWidth={2.25} />
+          </button>
+        </div>
       </div>
       <main className="app-content">
         <ErrorBoundary>

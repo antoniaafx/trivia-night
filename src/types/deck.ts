@@ -42,3 +42,9 @@ export interface DeckQuestionRecord {
   createdAt: string;
   updatedAt: string;
 }
+
+/** A Deck paired with its full Question list - what Game Setup's Deck picker/cards and preview need, fetched once via fetchDecksWithQuestions. */
+export interface DeckEntry {
+  deck: DeckRecord;
+  questions: DeckQuestionRecord[];
+}

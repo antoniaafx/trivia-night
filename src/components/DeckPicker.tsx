@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { computeDeckReadiness, isQuestionComplete } from "../utils/deckValidation";
 import { formatApproximateMinutes } from "../utils/formatDuration";
 import { MAX_DECKS_PER_GAME, QUESTION_SECONDS_ESTIMATE } from "../config/timingEstimates";
-import type { DeckEntry } from "./GameSetupPanel";
+import type { DeckEntry } from "../types/deck";
 import "./DeckPicker.css";
 
 interface DeckPickerProps {

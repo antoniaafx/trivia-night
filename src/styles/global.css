@@ -122,6 +122,15 @@ svg {
   box-shadow: var(--shadow-soft);
 }
 
+/* Visually hidden but still readable by assistive tech - the single shared definition every visually-labeled-elsewhere form control uses. */
+.sr-only-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
 .text-gradient {
   background: var(--gradient-primary);
   -webkit-background-clip: text;

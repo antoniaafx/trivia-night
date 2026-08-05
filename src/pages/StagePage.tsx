@@ -6,6 +6,7 @@ import { computeAggregateReveal, computeWinners } from "../utils/scoring";
 import { findSectionForQuestion } from "../utils/gamePlan";
 import { formatCountdown } from "../utils/timer";
 import { buildJoinUrl } from "../utils/roomLinks";
+import { avatarForClientId } from "../utils/avatars";
 import LoadingScreen from "../components/LoadingScreen";
 import CompetitorLeaderboard from "../components/CompetitorLeaderboard";
 import GameSetupSummary from "../components/GameSetupSummary";
@@ -19,42 +20,11 @@ function questionNumber(questionId: string | null): number {
   return QUESTIONS.findIndex((question) => question.id === questionId) + 1;
 }
 
-/**
- * Placeholder-simple stand-ins for the custom mascots planned later -
- * an animal emoji per joined Player, not a name (the Stage is read
- * from across a room, where an emoji reads faster than text - see the
- * "no player names" requirement). Hashing clientId (not array index)
- * keeps each Player's avatar stable across joins/leaves elsewhere in
- * the list, rather than reshuffling everyone whenever the roster
- * changes shape.
- */
-const STAGE_AVATAR_EMOJIS = [
-  "🐼",
-  "🐸",
-  "🐧",
-  "🐰",
-  "🦊",
-  "🐻",
-  "🐨",
-  "🐯",
-  "🦁",
-  "🐮",
-  "🐷",
-  "🐵",
-  "🐶",
-  "🐱",
-  "🐹",
-  "🐺",
-];
+// Player names are deliberately never shown here - the Stage is read
+// from across a room, where an emoji reads faster than text - so only
+// a capped number of avatars (see avatarForClientId, shared with the
+// Host Dashboard's Room Status) render before summarizing the rest.
 const STAGE_AVATAR_VISIBLE_LIMIT = 24;
-
-function avatarForClientId(clientId: string): string {
-  let hash = 0;
-  for (let i = 0; i < clientId.length; i++) {
-    hash = (hash * 31 + clientId.charCodeAt(i)) >>> 0;
-  }
-  return STAGE_AVATAR_EMOJIS[hash % STAGE_AVATAR_EMOJIS.length];
-}
 
 /**
  * The shared display. Read-only by design: no host controls render

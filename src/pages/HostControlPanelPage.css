@@ -125,19 +125,6 @@
   font-size: 0.9rem;
 }
 
-.host-lobby-roster {
-  width: 100%;
-  max-width: 420px;
-}
-
-.host-participation-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-xs);
-  font-weight: 600;
-}
-
 .host-phase {
   width: 100%;
   max-width: 480px;
@@ -269,20 +256,336 @@
   font: inherit;
 }
 
-.host-setup-player-count {
-  font-size: 1.05rem;
-  font-weight: 600;
+.host-style-picker {
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 
-.host-setup-roster {
+.host-style-picker label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.host-style-note {
+  color: var(--color-orange);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+/* Host Dashboard - Game Setup's layout. A persistent sidebar (permanent
+   room info only: QR, code, Open Stage) next to one cohesive settings
+   panel that also owns all *live* room state (Room Status), rather than
+   splitting the same information across two places. Single column
+   below the sidebar's comfortable minimum width; two columns - sidebar
+   sticky, panel scrolling with the page - above it. */
+.host-dashboard {
   width: 100%;
-  max-width: 420px;
+  max-width: 1100px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-md);
   text-align: left;
 }
 
-.host-setup-roster summary {
-  cursor: pointer;
-  color: var(--color-teal);
-  font-size: 0.9rem;
+@media (min-width: 860px) {
+  .host-dashboard {
+    grid-template-columns: minmax(240px, 300px) 1fr;
+    align-items: start;
+  }
+
+  /* Sticky, not fixed, and deliberately NOT its own scroll container:
+     no overflow-y/max-height here. The sidebar stays pinned below the
+     sticky app header (--app-header-height, the shared variable the
+     header itself is sized from) within the normal document scroll, as
+     the (taller) settings panel scrolls past it - there is exactly one
+     scrollbar for the whole page, and the sidebar's own content is kept
+     compact enough (see its child rules) to fit real desktop/laptop
+     viewport heights without needing an internal scroll fallback.
+     min-height makes the panel's own surface visually reach the bottom
+     of the available viewport - reading as a structural column, not a
+     small floating card - while its content (flex default
+     justify-content: flex-start) stays naturally top-aligned rather
+     than stretched or centered into that space. Safe to rely on the
+     viewport as the scrolling ancestor here - .app-shell clips with
+     `overflow: clip`, which (unlike hidden/auto) never establishes a
+     scroll container, so it's transparent to sticky's ancestor lookup. */
+  .host-dashboard-sidebar {
+    position: sticky;
+    top: calc(var(--app-header-height) + var(--space-sm));
+    align-self: start;
+    min-height: calc(100vh - var(--app-header-height) - (2 * var(--space-lg)));
+    min-height: calc(100dvh - var(--app-header-height) - (2 * var(--space-lg)));
+  }
+}
+
+.host-dashboard-sidebar {
+  /* If anything ever scrolls/focuses this into view (keyboard, an
+     anchor), the sticky app header above it should never be the thing
+     that ends up covering it. */
+  scroll-margin-top: var(--app-header-height);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
   text-align: center;
+  padding: var(--space-sm);
+}
+
+/* Slightly smaller than the Invite Lobby's QR (.invite-qr's default
+   130px) - keeps this compact, permanent-info-only sidebar comfortably
+   short on common desktop/laptop heights with room to spare. */
+.host-dashboard-sidebar .invite-qr {
+  width: 100px;
+}
+
+.host-dashboard-back {
+  align-self: flex-start;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.9rem;
+}
+
+/* Compact "● Live" badge - the dot is decorative reinforcement,
+   never the only signal (the text next to it always carries the actual
+   state: Live/Connecting.../Connection lost...). */
+.host-sidebar-live {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.host-sidebar-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-teal);
+  flex-shrink: 0;
+}
+
+.host-dashboard-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+/* One shared surface for every setting - see DashboardCard's doc
+   comment. Individual sections (.host-dashboard-section) are rows
+   within this panel, divided by a border, not separate floating cards -
+   so a future setting is just another row, no new card chrome.
+   Border radius is structural, not decorative: the panel (via the
+   shared .card class) owns the TOP corners because it's the true top of
+   the dashboard surface; its own bottom corners are explicitly squared
+   off here because the Start Game footer (the panel's own last child,
+   see .host-dashboard-start-bar) is the actual bottom of the surface
+   and owns that rounding instead - only one element should ever be
+   responsible for "this is where the dashboard ends." */
+.host-dashboard-panel {
+  display: flex;
+  flex-direction: column;
+  /* Tighter than the shared .card default (--space-lg all round) - one
+     panel holding several rows doesn't need as much breathing room per
+     edge as a single small floating card does. No bottom padding: the
+     footer (this panel's last child) fills that role itself. */
+  padding: var(--space-md) var(--space-lg) 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.host-dashboard-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  padding-bottom: var(--space-sm);
+  margin-bottom: var(--space-xs);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.host-dashboard-eyebrow {
+  margin: 0 0 0.15rem;
+  font-family: var(--font-heading);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-teal);
+}
+
+.host-dashboard-header h2 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.host-dashboard-section {
+  scroll-margin-top: var(--app-header-height);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-sm) 0;
+}
+
+.host-dashboard-section:not(:first-of-type) {
+  border-top: 1px solid var(--color-border);
+}
+
+.host-dashboard-section h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.host-dashboard-section-helper {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+/* Native <select>, styled as far as CSS allows: the closed control and
+   each <option>'s background/text colour are both settable, which
+   covers the popup's readability in every evergreen browser, while
+   keeping the keyboard navigation, focus handling and screen-reader
+   semantics a native control gets for free (a hand-built listbox would
+   have to reimplement all of that correctly itself). */
+.host-dashboard-select {
+  width: 100%;
+  max-width: 220px;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.host-dashboard-select option {
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+}
+
+.host-dashboard-select:hover {
+  border-color: var(--color-teal);
+}
+
+.host-dashboard-select:focus-visible {
+  outline: 3px solid var(--color-yellow);
+  outline-offset: 2px;
+}
+
+/* Room Status - the one place live room state lives (see
+   RoomStatusSection's doc comment); the sidebar next to it is
+   permanent info only. */
+.host-room-status-count {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.host-room-status-group {
+  margin-top: 0.5rem;
+}
+
+.host-room-status-group-name {
+  margin: 0 0 0.3rem;
+  font-family: var(--font-heading);
+  font-size: 0.85rem;
+  color: var(--color-teal);
+}
+
+.host-room-status-roster {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.host-room-status-roster li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  font-size: 0.85rem;
+}
+
+/* Key/value rows - a definition list, semantically matching what it
+   actually is, laid out as a two-column grid so every label and value
+   lines up cleanly regardless of label length. */
+.host-dashboard-summary-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.host-dashboard-summary-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-sm);
+  font-size: 0.95rem;
+}
+
+.host-dashboard-summary-row dt {
+  color: var(--color-text-muted);
+}
+
+.host-dashboard-summary-row dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 600;
+}
+
+/* The true bottom of the dashboard surface, not a separate floating
+   block: this is .host-dashboard-panel's own last child, immediately
+   after Game Summary with no extra margin of its own - only the
+   border-top divider (the same visual separation every other section
+   uses between its neighbour) marks where it begins. The negative
+   left/right margins cancel the panel's own horizontal padding so it
+   spans the panel's full width flush to its edges, and this is the
+   only place in the whole panel that owns bottom-rounded corners (see
+   .host-dashboard-panel's own doc comment) - the dashboard only reads
+   as "finished" here, at its actual end.
+
+   Sticky, not fixed, and only within the normal document scroll (same
+   reasoning as the sidebar): being the panel's last child bounds its
+   sticky range to the panel itself, so it can never drift over content
+   outside it or cover the Game Summary rows above once scrolled into
+   view, and there is still exactly one page scrollbar. */
+.host-dashboard-start-bar {
+  position: sticky;
+  bottom: 0;
+  margin: 0 calc(-1 * var(--space-lg));
+  padding: 0.65rem var(--space-lg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  background: var(--color-bg-secondary);
+  border-top: 1px solid var(--color-border);
+  border-bottom-left-radius: var(--radius-lg);
+  border-bottom-right-radius: var(--radius-lg);
+}
+
+.host-dashboard-start-readiness {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.host-dashboard-start-bar .host-style-note {
+  margin: 0;
 }

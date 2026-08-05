@@ -56,14 +56,51 @@
   left: -100px;
 }
 
+/* Sticky, full-bleed width, deliberately subtle: a low-opacity dark
+   overlay + blur reads as a frosted continuation of the page's own
+   --gradient-hero rather than a separate opaque block - the gradient
+   stays visible through it, just softened enough to keep the brand/
+   Settings readable at any scroll position. z-index sits above normal
+   page content (.app-content is 1) but well below any modal backdrop
+   (DeckPicker's is 200) - a sticky header should never cover an open
+   modal. Fixed --app-header-height (not margin-derived) so vertical
+   centering is trivial and exact, and identical at every breakpoint -
+   this is also the single value anything below the header (e.g. the
+   Host Dashboard sidebar) offsets itself by, so it only ever needs to
+   change in one place. */
 .app-header {
-  position: relative;
-  z-index: 1;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  width: 100%;
+  height: var(--app-header-height);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  background: rgba(18, 14, 41, 0.45);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Browsers without backdrop-filter support get a more opaque fallback
+   instead - transparency was never load-bearing for readability, only
+   a nice-to-have on top of it. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .app-header {
+    background: rgba(18, 14, 41, 0.88);
+  }
+}
+
+/* The brand/Settings row itself - width/max-width/horizontal padding
+   come from the shared .container class (same content grid every other
+   page already aligns to), this class only adds the flex row layout. */
+.app-header-inner {
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
-  margin: var(--space-md) var(--space-md) 0;
 }
 
 .app-brand {
@@ -99,10 +136,4 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-}
-
-@media (max-width: 640px) {
-  .app-header {
-    margin: var(--space-sm) var(--space-sm) 0;
-  }
 }
