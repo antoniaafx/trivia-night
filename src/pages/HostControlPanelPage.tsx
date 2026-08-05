@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
 import { useClientId } from "../hooks/useClientId";
 import { useCreatorId } from "../hooks/useCreatorId";
@@ -8,7 +8,7 @@ import { useAutosaveController, type SaveStatus } from "../hooks/useAutosaveCont
 import { useCountdown } from "../hooks/useCountdown";
 import { formatCountdown } from "../utils/timer";
 import { getNextQuestionId, getQuestionById, QUESTIONS, type Question, type TypedAnswerQuestion } from "../data/questions";
-import { computeAggregateReveal, computeWinners } from "../utils/scoring";
+import { computeWinners } from "../utils/scoring";
 import {
   computePlanSummary,
   findSectionForQuestion,
@@ -410,6 +410,33 @@ function HostControlPanelPage() {
   const answeredCompetitors = competitors.filter((competitor) => answeredCompetitorIds.has(competitor.id));
   const waitingCompetitors = competitors.filter((competitor) => !answeredCompetitorIds.has(competitor.id));
 
+  // Reveal's per-competitor result grouping - the exact same authoritative
+  // gradingStatus revealAndScore already wrote per answer row (see its own
+  // doc comment: grading + scores are written atomically before `phase`
+  // ever flips to "reveal"), just grouped by outcome instead of collapsed
+  // into computeAggregateReveal's totals. No new grading logic: a
+  // competitor who never submitted has no entry in gradedAnswers at all
+  // (No Answer); "pending_review" is Typed Answer's existing fuzzy-match
+  // queue, unresolved.
+  const resultStatusByCompetitorId = new Map(
+    gradedAnswers.map(
+      (answer) =>
+        [
+          isTeamMode ? (answer as TeamAnswerRecord).teamId : (answer as AnswerRecord).clientId,
+          answer.gradingStatus,
+        ] as const,
+    ),
+  );
+  const correctCompetitors = competitors.filter((competitor) => resultStatusByCompetitorId.get(competitor.id) === "correct");
+  const incorrectCompetitors = competitors.filter(
+    (competitor) => resultStatusByCompetitorId.get(competitor.id) === "incorrect",
+  );
+  const pendingReviewCompetitors = competitors.filter((competitor) => {
+    const status = resultStatusByCompetitorId.get(competitor.id);
+    return status === "pending_review" || status === "ungraded";
+  });
+  const noAnswerCompetitors = competitors.filter((competitor) => !resultStatusByCompetitorId.has(competitor.id));
+
   const nextQuestionId = getNextQuestionId(questionList, room.currentQuestionId);
 
   async function handleReview(id: string, decision: "correct" | "incorrect") {
@@ -473,16 +500,17 @@ function HostControlPanelPage() {
         />
       )}
 
-      {/* The live Question screen (see QuestionPhase's own doc comment)
-          is a full control centre in its own right, with no spare room
-          or need for a second, redundant QR/room-code reminder card
-          above it - Open Stage stayed reachable from the Dashboard's
-          fixed panel every phase before this one. Every other phase
-          this app doesn't yet have a dedicated screen for still gets
-          this simple fallback, unchanged. */}
+      {/* The live Question/Reveal screen (see LiveGamePhase's own doc
+          comment) is a full control centre in its own right, with no
+          spare room or need for a second, redundant QR/room-code
+          reminder card above it - Open Stage stayed reachable from the
+          Dashboard's fixed panel every phase before this one. Every
+          other phase this app doesn't yet have a dedicated screen for
+          still gets this simple fallback, unchanged. */}
       {!(
         (room.phase === "lobby" && (lobbyStage === "invite" || lobbyStage === "setup")) ||
-        room.phase === "question"
+        room.phase === "question" ||
+        room.phase === "reveal"
       ) && (
         <div className="host-lobby-invite card">
           <RoomQrCode joinUrl={joinUrl} size={180} />
@@ -498,15 +526,26 @@ function HostControlPanelPage() {
         </div>
       )}
 
-      {room.phase === "question" && question && (
-        <QuestionPhase
+      {/* Question and Reveal are two states of the exact same control
+          centre, rendered by the same component at the same DOM
+          position - see LiveGamePhase's own doc comment for why that's
+          what keeps the header/two-column layout from jumping or
+          remounting the moment Reveal Answer is pressed. */}
+      {(room.phase === "question" || room.phase === "reveal") && question && (
+        <LiveGamePhase
           question={question}
           sectionInfo={sectionInfo}
           questionNumber={questionNumber}
           totalQuestions={questionList.length}
+          revealed={room.phase === "reveal"}
+          isTeamMode={isTeamMode}
           answeredCompetitors={answeredCompetitors}
           waitingCompetitors={waitingCompetitors}
-          isTeamMode={isTeamMode}
+          correctCompetitors={correctCompetitors}
+          incorrectCompetitors={incorrectCompetitors}
+          pendingReviewCompetitors={pendingReviewCompetitors}
+          noAnswerCompetitors={noAnswerCompetitors}
+          unitLabel={unitLabel}
           questionTimerSeconds={questionTimerSeconds}
           questionFlow={questionFlow}
           timerStatus={room.timerStatus}
@@ -519,35 +558,19 @@ function HostControlPanelPage() {
           onReveal={() => void handleReveal()}
           revealing={revealing}
           revealError={revealError}
-        />
-      )}
-
-      {room.phase === "question" && !question && (
-        <div className="host-phase card">
-          <p className="host-phase-label">Question</p>
-          <p className="host-lobby-status" role="status">
-            Catching up with the current Question…
-          </p>
-        </div>
-      )}
-
-      {room.phase === "reveal" && question && (
-        <RevealPhase
-          question={question}
-          answers={gradedAnswers}
           pendingItems={pendingItems}
           busyReviewId={busyReviewId}
           onReview={(id, decision) => void handleReview(id, decision)}
           onContinue={() => void (nextQuestionId ? advanceQuestion() : showLeaderboard())}
-          continueLabel={nextQuestionId ? "Continue to Next Question" : "Show Leaderboard"}
+          continueLabel={nextQuestionId ? "Next Question" : "Finish Game"}
         />
       )}
 
-      {room.phase === "reveal" && !question && (
+      {(room.phase === "question" || room.phase === "reveal") && !question && (
         <div className="host-phase card">
-          <p className="host-phase-label">Reveal</p>
+          <p className="host-phase-label">{room.phase === "question" ? "Question" : "Reveal"}</p>
           <p className="host-lobby-status" role="status">
-            Catching up with the reveal…
+            Catching up with the {room.phase === "question" ? "current Question" : "reveal"}…
           </p>
         </div>
       )}
@@ -685,46 +708,6 @@ function useRosterLimit(): number {
 }
 
 /**
- * Detects whether a `position: sticky; bottom: 0` footer (Start Game /
- * Continue) has reached its true, unstuck resting position at the
- * bottom of its containing panel, as opposed to still being pinned
- * mid-scroll above content that hasn't gone by yet - see
- * .host-dashboard-start-bar's own doc comment for why that distinction
- * is what drives its square-vs-rounded bottom corners.
- *
- * The returned `sentinelRef` must be attached to a zero-height element
- * placed immediately after the footer, inside the same containing
- * panel (see .host-dashboard-start-bar-sentinel) - once that sentinel
- * scrolls into view, real content exists below the footer, which can
- * only be true once the footer has stopped sticking and returned to
- * its natural position. IntersectionObserver, not a scroll listener:
- * no per-frame polling, no manual getBoundingClientRect() math on
- * every scroll event, and it re-evaluates automatically on resize or
- * layout changes for free. The one synchronous measurement inside
- * useLayoutEffect exists only to set the correct initial value before
- * the browser's first paint - IntersectionObserver callbacks are
- * always asynchronous, so without it there'd be a one-frame flash of
- * the wrong corner state (square, even when the panel is short enough
- * that the footer is at rest from the very first frame) before the
- * observer's own first callback arrives.
- */
-function useStickyFooterAtRest() {
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-  const [isAtRest, setIsAtRest] = useState(false);
-
-  useLayoutEffect(() => {
-    const node = sentinelRef.current;
-    if (!node) return;
-    setIsAtRest(node.getBoundingClientRect().top < window.innerHeight);
-    const observer = new IntersectionObserver(([entry]) => setIsAtRest(entry.isIntersecting), { threshold: 0 });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-
-  return { sentinelRef, isAtRest };
-}
-
-/**
  * Stage 1 - just getting people connected. Deliberately shows no game
  * settings at all (not even the Competition Style picker) - that's
  * Game Setup's job. Continue is always available, even with zero
@@ -763,7 +746,6 @@ function InviteLobbyPhase({
   const visiblePlayers = joinedPlayers.slice(0, rosterLimit);
   const remaining = count - visiblePlayers.length;
   const continueLabel = count === 0 ? "Continue without players" : "Continue";
-  const { sentinelRef, isAtRest } = useStickyFooterAtRest();
 
   return (
     <div className="host-dashboard">
@@ -809,14 +791,16 @@ function InviteLobbyPhase({
                 {continueError}
               </p>
             )}
-          </div>
 
-          <div className={`host-dashboard-start-bar${isAtRest ? " is-at-rest" : ""}`}>
-            <button type="button" className="btn btn-primary" onClick={onContinue} disabled={continuing}>
+            <button
+              type="button"
+              className="btn btn-primary host-floating-action"
+              onClick={onContinue}
+              disabled={continuing}
+            >
               {continuing ? "Continuing…" : continueLabel}
             </button>
           </div>
-          <div ref={sentinelRef} aria-hidden="true" className="host-dashboard-start-bar-sentinel" />
         </div>
       </div>
     </div>
@@ -1200,7 +1184,6 @@ function GameSetupPhase({
   const isRematch = deckSnapshot.kind === "game_plan";
   const hostParticipation = deckSnapshot.hostParticipation;
   const [pickerOpen, setPickerOpen] = useState(false);
-  const { sentinelRef, isAtRest } = useStickyFooterAtRest();
 
   // An empty Deck selection is never blocked - it just means Quick Play
   // (the built-in sample Questions), which is always a valid, ready-to-
@@ -1330,32 +1313,24 @@ function GameSetupPhase({
 
             {/* A genuine failed Start Game attempt (a real error from the
                 server, not a proactive validation state) - kept out of
-                the sticky footer itself, which is Start Game and nothing
-                else (see its own doc comment below), but still needs to
-                surface *somewhere*, or a failed click would go silently
-                unexplained. */}
+                the floating action button itself, which is Start Game
+                and nothing else, but still needs to surface *somewhere*,
+                or a failed click would go silently unexplained. */}
             {startError && (
               <p className="host-style-note" role="alert">
                 {startError}
               </p>
             )}
-          </div>
 
-          {/* Last row of the same panel (not a separate floating card) -
-              its sticky range is bounded by the panel itself, so it can
-              never drift over content outside it or cover the Game
-              Summary rows above once they've scrolled into view. */}
-          <div className={`host-dashboard-start-bar${isAtRest ? " is-at-rest" : ""}`}>
             <button
               type="button"
-              className="btn btn-primary"
+              className="btn btn-primary host-floating-action"
               onClick={onStart}
               disabled={startBlockedReason !== null || starting || returningToInvite}
             >
               {starting ? "Starting…" : isRematch ? "Start Rematch" : "Start Game"}
             </button>
           </div>
-          <div ref={sentinelRef} aria-hidden="true" className="host-dashboard-start-bar-sentinel" />
         </div>
       </div>
     </div>
@@ -1368,25 +1343,52 @@ function GameSetupPhase({
  * every other phase: a header plus a two-column body sized to the
  * viewport itself, not a centred card floating in .host-lobby's own
  * generic padding (see .live-game's own doc comment in the CSS for
- * how it opts out of that). The Question Card is the complete
- * interaction module - title, answer options, and the primary action
- * all live inside the one card, instead of a separate page-level
- * footer bar underneath it. Nothing about *what* the Host can do
- * changed here - Start/Pause/Resume Timer, Reveal Answer, and the
- * correct-answer reveal are the exact same controls and handlers
- * QuestionPhase always had, only regrouped: timer controls sit under
- * the Player Monitor (they're about player progress, not question
- * navigation), and the old aggregate "4 / 5 answered" counter is now
- * the actual Answered/Waiting roster it was always summarizing.
+ * how it opts out of that).
+ *
+ * Question and Reveal are two states of this ONE component, not two
+ * screens - `revealed` switches what the Question Card's action area
+ * and the left monitor panel show, but every wrapping element
+ * (.live-game, .live-game-header, .live-game-question,
+ * .live-game-question-body/-actions, .live-game-monitor) is rendered
+ * unconditionally at the same position in the same tree every time.
+ * That's what keeps the header, the two-column ratio, and both
+ * panels' size/position pixel-identical across the Reveal Answer
+ * press - React reconciles in place instead of swapping in a
+ * differently-shaped screen, so there is no layout jump, no remount,
+ * and a focused control (e.g. the primary action button itself)
+ * never loses focus.
+ *
+ * The Question Card is the complete interaction module - title,
+ * answer options, and the primary action all live inside the one
+ * card, instead of a separate page-level footer bar underneath it.
+ * The correct-answer treatment (Multiple Choice's highlighted "is-
+ * correct" option, Typed Answer's host-only answer key) was already
+ * Host-only information shown from the moment the Question started,
+ * not something Reveal newly unlocks - so unlike the left panel nothing
+ * about it needs to change when `revealed` flips.
+ *
+ * Left panel: Answered/Waiting roster before Reveal, Correct/
+ * Incorrect/No Answer/Pending Review results after - both are pure
+ * client-side groupings of the same already-fetched answers (see
+ * HostControlPanelPage's own resultStatusByCompetitorId comment), not
+ * a second grading system. Pause/Resume Timer only ever renders
+ * pre-Reveal - answers are locked by the time Reveal exists, so there
+ * is no legitimate timer action left to offer.
  */
-function QuestionPhase({
+function LiveGamePhase({
   question,
   sectionInfo,
   questionNumber,
   totalQuestions,
+  revealed,
+  isTeamMode,
   answeredCompetitors,
   waitingCompetitors,
-  isTeamMode,
+  correctCompetitors,
+  incorrectCompetitors,
+  pendingReviewCompetitors,
+  noAnswerCompetitors,
+  unitLabel,
   questionTimerSeconds,
   questionFlow,
   timerStatus,
@@ -1399,14 +1401,25 @@ function QuestionPhase({
   onReveal,
   revealing,
   revealError,
+  pendingItems,
+  busyReviewId,
+  onReview,
+  onContinue,
+  continueLabel,
 }: {
   question: Question;
   sectionInfo: { section: { deckTitle: string }; sectionNumber: number; totalSections: number } | null;
   questionNumber: number;
   totalQuestions: number;
+  revealed: boolean;
+  isTeamMode: boolean;
   answeredCompetitors: Competitor[];
   waitingCompetitors: Competitor[];
-  isTeamMode: boolean;
+  correctCompetitors: Competitor[];
+  incorrectCompetitors: Competitor[];
+  pendingReviewCompetitors: Competitor[];
+  noAnswerCompetitors: Competitor[];
+  unitLabel: string;
   questionTimerSeconds: number | null;
   questionFlow: QuestionFlow;
   timerStatus: TimerStatus;
@@ -1419,11 +1432,27 @@ function QuestionPhase({
   onReveal: () => void;
   revealing: boolean;
   revealError: string | null;
+  pendingItems: PendingReviewItem[];
+  busyReviewId: string | null;
+  onReview: (id: string, decision: "correct" | "incorrect") => void;
+  onContinue: () => void;
+  continueLabel: string;
 }) {
   const hasTimer = questionTimerSeconds !== null;
   const categoryLabel = sectionInfo
     ? `${sectionInfo.section.deckTitle} · Deck ${sectionInfo.sectionNumber} of ${sectionInfo.totalSections}`
     : "Quick Play";
+  const rosterLimit = useRosterLimit();
+  const totalResultCompetitors =
+    correctCompetitors.length + incorrectCompetitors.length + pendingReviewCompetitors.length + noAnswerCompetitors.length;
+  const resultSummary = [
+    correctCompetitors.length > 0 && `${correctCompetitors.length} Correct`,
+    incorrectCompetitors.length > 0 && `${incorrectCompetitors.length} Incorrect`,
+    noAnswerCompetitors.length > 0 && `${noAnswerCompetitors.length} No Answer`,
+    pendingReviewCompetitors.length > 0 && `${pendingReviewCompetitors.length} Pending Review`,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
 
   return (
     <div className="live-game">
@@ -1449,10 +1478,10 @@ function QuestionPhase({
           *visual* position of .live-game-monitor changes at the
           desktop breakpoint (see .live-game's own grid-template-areas
           in the CSS), not its place in the document. The Question Card
-          is now the complete interaction module: a scrollable body
-          (title/options/error) plus a primary action area that's
-          always pinned to the card's own bottom edge, divided from the
-          body by a hairline rather than living in a separate
+          is the complete interaction module: a scrollable body
+          (title/options/review queue/error) plus a primary action area
+          that's always pinned to the card's own bottom edge, divided
+          from the body by a hairline rather than living in a separate
           page-level footer. */}
       <section className="live-game-question" aria-label="Question">
         <div className="live-game-question-body">
@@ -1486,85 +1515,203 @@ function QuestionPhase({
             </div>
           )}
 
-          {revealError && (
+          {revealed && question.answerMethod === "typed_answer" && pendingItems.length > 0 && (
+            <TypedAnswerReviewQueue items={pendingItems} question={question} busyItemId={busyReviewId} onReview={onReview} />
+          )}
+
+          {!revealed && revealError && (
             <p className="host-style-note" role="alert">
               {revealError}
             </p>
           )}
         </div>
 
+        {/* Same action area, same position, in every state - only its
+            content changes: Reveal Answer before Reveal; a ghost
+            "Continue Anyway" while Typed Answer review is still
+            outstanding (scores could still change); Next Question/
+            Finish Game once every submission is finally graded. */}
         <div className="live-game-question-actions">
-          <button type="button" className="btn btn-primary" onClick={onReveal} disabled={revealing}>
-            {revealing ? "Revealing…" : "Reveal Answer"}
-          </button>
+          {!revealed ? (
+            <button type="button" className="btn btn-primary" onClick={onReveal} disabled={revealing}>
+              {revealing ? "Revealing…" : "Reveal Answer"}
+            </button>
+          ) : pendingItems.length > 0 ? (
+            <button type="button" className="btn btn-ghost" onClick={onContinue}>
+              Continue Anyway — Scores May Still Change
+            </button>
+          ) : (
+            <button type="button" className="btn btn-primary" onClick={onContinue}>
+              {continueLabel}
+            </button>
+          )}
         </div>
       </section>
 
-      <aside className="live-game-monitor" aria-label={isTeamMode ? "Teams" : "Players"}>
-        <h3 className="live-game-monitor-title">{isTeamMode ? "Teams" : "Players"}</h3>
+      <aside
+        className="live-game-monitor"
+        aria-label={revealed ? (isTeamMode ? "Team Results" : "Player Results") : isTeamMode ? "Teams" : "Players"}
+      >
+        <h3 className="live-game-monitor-title">
+          {revealed ? (isTeamMode ? "Team Results" : "Player Results") : isTeamMode ? "Teams" : "Players"}
+        </h3>
 
-        <div className="live-game-monitor-list">
-          {waitingCompetitors.length === 0 ? (
-            <p className="live-game-monitor-all-done">
-              <span aria-hidden="true">✓</span> Everyone has answered
-            </p>
-          ) : (
-            <>
-              {answeredCompetitors.length > 0 && (
-                <div className="live-game-monitor-group">
-                  <p className="live-game-monitor-group-label">Answered</p>
-                  <ul>
-                    {answeredCompetitors.map((competitor) => (
-                      <li key={competitor.id} className="live-game-monitor-row is-answered">
-                        <span aria-hidden="true">✓</span>
-                        {competitor.displayName}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+        {!revealed ? (
+          <>
+            <div className="live-game-monitor-list">
+              {waitingCompetitors.length === 0 ? (
+                <p className="live-game-monitor-all-done">
+                  <span aria-hidden="true">✓</span> Everyone has answered
+                </p>
+              ) : (
+                <>
+                  {answeredCompetitors.length > 0 && (
+                    <div className="live-game-monitor-group">
+                      <p className="live-game-monitor-group-label">Answered</p>
+                      <ul>
+                        {answeredCompetitors.map((competitor) => (
+                          <li key={competitor.id} className="live-game-monitor-row is-answered">
+                            <span aria-hidden="true">✓</span>
+                            {competitor.displayName}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <div className="live-game-monitor-group">
+                    <p className="live-game-monitor-group-label">Waiting</p>
+                    <ul>
+                      {waitingCompetitors.map((competitor) => (
+                        <li key={competitor.id} className="live-game-monitor-row is-waiting">
+                          <span aria-hidden="true">⏳</span>
+                          {competitor.displayName}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </>
               )}
-              <div className="live-game-monitor-group">
-                <p className="live-game-monitor-group-label">Waiting</p>
-                <ul>
-                  {waitingCompetitors.map((competitor) => (
-                    <li key={competitor.id} className="live-game-monitor-row is-waiting">
-                      <span aria-hidden="true">⏳</span>
-                      {competitor.displayName}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </>
-          )}
-        </div>
+            </div>
 
-        {hasTimer && (
-          <div className="live-game-monitor-timer">
-            {timerStatus === "paused" && <p className="live-game-monitor-note">Timer paused by Host.</p>}
-            {timerStatus === "expired" && <p className="live-game-monitor-note">All answers locked.</p>}
-            {timerActionError && (
-              <p className="host-style-note" role="alert">
-                {timerActionError}
-              </p>
+            {hasTimer && (
+              <div className="live-game-monitor-timer">
+                {timerStatus === "paused" && <p className="live-game-monitor-note">Timer paused by Host.</p>}
+                {timerStatus === "expired" && <p className="live-game-monitor-note">All answers locked.</p>}
+                {timerActionError && (
+                  <p className="host-style-note" role="alert">
+                    {timerActionError}
+                  </p>
+                )}
+                {timerStatus === "not_started" && questionFlow === "host_controlled" && (
+                  <button type="button" className="btn btn-secondary" onClick={onStartTimer} disabled={timerActionBusy}>
+                    {timerActionBusy ? "Starting…" : "Start Timer"}
+                  </button>
+                )}
+                {timerStatus === "running" && (
+                  <button type="button" className="btn btn-secondary" onClick={onPauseTimer} disabled={timerActionBusy}>
+                    {timerActionBusy ? "Pausing…" : "Pause Timer"}
+                  </button>
+                )}
+                {timerStatus === "paused" && (
+                  <button type="button" className="btn btn-secondary" onClick={onResumeTimer} disabled={timerActionBusy}>
+                    {timerActionBusy ? "Resuming…" : "Resume Timer"}
+                  </button>
+                )}
+              </div>
             )}
-            {timerStatus === "not_started" && questionFlow === "host_controlled" && (
-              <button type="button" className="btn btn-secondary" onClick={onStartTimer} disabled={timerActionBusy}>
-                {timerActionBusy ? "Starting…" : "Start Timer"}
-              </button>
-            )}
-            {timerStatus === "running" && (
-              <button type="button" className="btn btn-secondary" onClick={onPauseTimer} disabled={timerActionBusy}>
-                {timerActionBusy ? "Pausing…" : "Pause Timer"}
-              </button>
-            )}
-            {timerStatus === "paused" && (
-              <button type="button" className="btn btn-secondary" onClick={onResumeTimer} disabled={timerActionBusy}>
-                {timerActionBusy ? "Resuming…" : "Resume Timer"}
-              </button>
+          </>
+        ) : (
+          <div className="live-game-monitor-list">
+            {totalResultCompetitors === 0 ? (
+              <p className="live-game-monitor-note">No {unitLabel}s to show yet.</p>
+            ) : (
+              <>
+                <p className="live-game-monitor-summary" role="status">
+                  {resultSummary}
+                </p>
+                <LiveGameResultGroup
+                  label="Correct"
+                  icon="✓"
+                  variant="correct"
+                  competitors={correctCompetitors}
+                  limit={rosterLimit}
+                />
+                <LiveGameResultGroup
+                  label="Incorrect"
+                  icon="✕"
+                  variant="incorrect"
+                  competitors={incorrectCompetitors}
+                  limit={rosterLimit}
+                />
+                <LiveGameResultGroup
+                  label="No Answer"
+                  icon="○"
+                  variant="no-answer"
+                  competitors={noAnswerCompetitors}
+                  limit={rosterLimit}
+                />
+                <LiveGameResultGroup
+                  label="Pending Review"
+                  icon="?"
+                  variant="pending"
+                  competitors={pendingReviewCompetitors}
+                  limit={rosterLimit}
+                />
+              </>
             )}
           </div>
         )}
       </aside>
+    </div>
+  );
+}
+
+/**
+ * One outcome group inside the post-Reveal result monitor - the icon
+ * lives on the group's own label (e.g. "✓ Correct"), not repeated on
+ * every row, since the label already carries the icon+text pairing
+ * accessibility needs (see LiveGamePhase's own doc comment); names
+ * underneath are plain, associated with that heading by simple DOM
+ * proximity. Truncates to `limit` (the same viewport-based
+ * useRosterLimit every other roster in this app uses) with a reused
+ * "+N more" treatment - the summary line above still gives the Host
+ * the true total even when a group's own list is cut short, so no
+ * count is ever silently hidden. Renders nothing for an empty group,
+ * the same convention every other conditional section on this screen
+ * follows.
+ */
+function LiveGameResultGroup({
+  label,
+  icon,
+  variant,
+  competitors,
+  limit,
+}: {
+  label: string;
+  icon: string;
+  variant: "correct" | "incorrect" | "no-answer" | "pending";
+  competitors: Competitor[];
+  limit: number;
+}) {
+  if (competitors.length === 0) return null;
+  const visible = competitors.slice(0, limit);
+  const hiddenCount = competitors.length - visible.length;
+
+  return (
+    <div className="live-game-monitor-group">
+      <p className={`live-game-monitor-group-label is-${variant}`}>
+        <span aria-hidden="true">{icon}</span> {label}
+      </p>
+      <ul>
+        {visible.map((competitor) => (
+          <li key={competitor.id} className="live-game-monitor-row">
+            {competitor.displayName}
+          </li>
+        ))}
+        {hiddenCount > 0 && (
+          <li className="live-game-monitor-row host-roster-more">+{hiddenCount} more</li>
+        )}
+      </ul>
     </div>
   );
 }
@@ -1619,61 +1766,6 @@ function TypedAnswerReviewQueue({
           );
         })}
       </ul>
-    </div>
-  );
-}
-
-function RevealPhase({
-  question,
-  answers,
-  pendingItems,
-  busyReviewId,
-  onReview,
-  onContinue,
-  continueLabel,
-}: {
-  question: Question;
-  answers: AnswerRecord[] | TeamAnswerRecord[];
-  pendingItems: PendingReviewItem[];
-  busyReviewId: string | null;
-  onReview: (id: string, decision: "correct" | "incorrect") => void;
-  onContinue: () => void;
-  continueLabel: string;
-}) {
-  const aggregate = computeAggregateReveal(answers);
-  const correctAnswerText =
-    question.answerMethod === "multiple_choice"
-      ? question.options.find((option) => option.id === question.correctOptionId)?.text
-      : question.correctAnswer;
-
-  return (
-    <div className="host-phase card">
-      <p className="host-phase-label">Reveal</p>
-      <h2>The answer was {correctAnswerText}</h2>
-      {aggregate.answeredCount === 0 ? (
-        <p className="host-aggregate">Nobody answered this one.</p>
-      ) : (
-        <p className="host-aggregate">
-          {aggregate.correctCount} of {aggregate.correctCount + aggregate.incorrectCount} correct (
-          {aggregate.percentageCorrect}%)
-          {aggregate.pendingCount > 0 &&
-            ` — ${aggregate.pendingCount} still being checked`}
-        </p>
-      )}
-
-      {question.answerMethod === "typed_answer" && pendingItems.length > 0 && (
-        <TypedAnswerReviewQueue items={pendingItems} question={question} busyItemId={busyReviewId} onReview={onReview} />
-      )}
-
-      {pendingItems.length > 0 ? (
-        <button type="button" className="btn btn-ghost" onClick={onContinue}>
-          Continue Anyway — Scores May Still Change
-        </button>
-      ) : (
-        <button type="button" className="btn btn-primary" onClick={onContinue}>
-          {continueLabel}
-        </button>
-      )}
     </div>
   );
 }

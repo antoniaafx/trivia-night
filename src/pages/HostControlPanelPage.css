@@ -268,11 +268,33 @@
 
 .live-game-monitor-group-label {
   margin: 0 0 0.35rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
   font-family: var(--font-heading);
   font-size: 0.75rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--color-text-muted);
+}
+
+/* The Reveal result groups' outcome colour lives on the group label
+   itself (icon + text together, e.g. "✓ Correct") rather than on every
+   row underneath - see LiveGameResultGroup's own doc comment. Reuses
+   the same teal "positive" and orange "needs attention" hues the rest
+   of the Host workspace already uses for this meaning (is-answered,
+   host-style-note) instead of introducing a new colour the design
+   system doesn't have. */
+.live-game-monitor-group-label.is-correct {
+  color: var(--color-teal);
+}
+
+.live-game-monitor-group-label.is-incorrect {
+  color: var(--color-orange);
+}
+
+.live-game-monitor-group-label.is-pending {
+  color: var(--color-text);
 }
 
 .live-game-monitor-group ul {
@@ -302,7 +324,7 @@
   color: var(--color-text-muted);
 }
 
-/* Only ever appears in place of the Waiting group (see QuestionPhase) -
+/* Only ever appears in place of the Waiting group (see LiveGamePhase) -
    never alongside it, so there's no ambiguity about what it replaces. */
 .live-game-monitor-all-done {
   margin: 0;
@@ -313,14 +335,33 @@
   font-weight: 600;
 }
 
-/* Subtle, one-time "you're now in the Answered list" cue - plays once
-   per competitor per Question (React only (re)mounts this <li> the
-   moment it first appears here; re-renders while it stays reuse the
-   same node and don't replay it). Respects reduced-motion: the list
-   membership change itself already communicates the state, this is
-   pure polish on top. */
+/* The Reveal result monitor's top-of-panel total, e.g. "5 Correct · 2
+   Incorrect · 1 No Answer" - see the "Recommended summary" requirement
+   on LiveGamePhase's own result grouping. Always reflects the true
+   total even where an individual group's own list below is truncated
+   to "+N more", so a count is never silently hidden. role="status" so
+   it's announced once, politely, the moment Reveal Answer flips the
+   panel from roster to results - not per-row, which would be noisy. */
+.live-game-monitor-summary {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+}
+
+/* Subtle, one-time transition cue: an Answered row fades in the moment
+   it first joins that group pre-Reveal (React (re)mounts the <li> only
+   then); the whole result monitor fades in once, together, the moment
+   Reveal Answer swaps the roster for results - the panel genuinely
+   changes shape (2 groups become up to 4), so one settle-in beats
+   re-triggering per row. Respects reduced-motion either way: the
+   content change itself already communicates the update, this is pure
+   polish on top. */
 @media (prefers-reduced-motion: no-preference) {
   .live-game-monitor-row.is-answered {
+    animation: live-game-row-in 220ms ease;
+  }
+
+  .live-game-monitor-list {
     animation: live-game-row-in 220ms ease;
   }
 }
@@ -510,6 +551,17 @@
      is that element's *sibling*, not its descendant - only their shared
      parent can hand the same value to both. */
   --host-sidebar-width: 280px;
+  /* Mirrors .host-dashboard-sidebar's own `left` centering math (see
+     that rule's doc comment) - same shared tokens (--space-md,
+     --max-content-width), just solving for the panel's *right* edge
+     instead of the sidebar's left one, so .host-floating-action (below)
+     can align with the right panel's own edge instead of an arbitrary
+     value that only happens to work at one viewport. Consumed only by
+     `position: fixed` descendants, where `%` resolves against the
+     viewport - not by anything in normal flow. */
+  --host-panel-right-inset: calc(
+    var(--space-md) + max(0px, calc((100% - (2 * var(--space-md)) - var(--max-content-width)) / 2))
+  );
   width: 100%;
   max-width: 1100px;
   display: block;
@@ -659,31 +711,80 @@
 
 /* The dashboard's one true outer shape - background, border, shadow
    and (via the shared .card class, unmodified: no radius override
-   here) all four rounded corners. Everything else - the padded
-   content column below and the sticky footer after it - is a plain
-   child of this box with no visual identity of its own, so there's
-   only ever one surface, one shadow and one radius system for the
-   whole dashboard, header through Start Game, exactly like the header
-   of a document and its footer both being part of the same page, not
-   two overlapping ones. `padding: 0` cancels .card's own default
-   padding - the content column below owns the actual inset instead, so
-   the footer (a sibling of that column, not nested inside its padding)
-   can span this box's full content width with nothing to escape. */
+   here) all four rounded corners, all naturally owned by this element
+   alone. There is no longer a separate footer surface competing for
+   the panel's own bottom edge (see .host-floating-action below) - the
+   primary action button either lives fully in-flow at the end of
+   .host-dashboard-content (mobile) or escapes flow entirely via
+   `position: fixed` (desktop), so this panel always ends exactly where
+   its own content does, with its own unmodified rounded corners. */
 .host-dashboard-panel {
   display: flex;
   flex-direction: column;
   padding: 0;
 }
 
-/* The padded, scrollable-with-the-page body of the dashboard - header
-   through Game Summary. Everything that used to be .host-dashboard-
-   panel's own padding lives here now; this is the part of the
-   dashboard that visually reads as "content," as opposed to the
-   footer below it, which reads as a persistent action bar. */
+/* The padded body of the dashboard - header through Game Summary,
+   plus the primary action button as its own last child (not a
+   separate footer sibling anymore). Bottom padding matches the other
+   three sides by default (mobile: the button is a normal, full-width,
+   in-flow child here); at the desktop breakpoint it grows to reserve
+   just enough room for the now-fixed floating button so it never
+   permanently covers the last row of real content - see the
+   `@media (min-width: 860px)` rule below. */
 .host-dashboard-content {
   display: flex;
   flex-direction: column;
-  padding: var(--space-md) var(--space-lg) 0;
+  padding: var(--space-md) var(--space-lg);
+}
+
+@media (min-width: 860px) {
+  /* Reserves exactly the floating button's own footprint (its ~50px
+     rendered height, comfortably covered by --space-lg) plus its
+     bottom clearance from the viewport (--space-lg again) plus a
+     small breathing gap (--space-md) above it - not an arbitrary
+     blank area, three existing spacing tokens sized to the actual
+     button below them. */
+  .host-dashboard-content {
+    padding-bottom: calc(var(--space-lg) * 2 + var(--space-md));
+  }
+}
+
+/* The Continue/Start Game primary action - no footer surface behind
+   it anymore (no background, no border, no rounded-corner container):
+   only the button's own existing gradient/shadow/radius keep it
+   visible against the page. Mobile-first: a plain, full-width button
+   at the natural end of .host-dashboard-content's own flow below
+   860px (the one Host-workspace breakpoint) - the brief's own
+   explicit fallback for small screens ("if fixed positioning creates
+   viewport problems, use a normal full-width button instead"), and it
+   sidesteps every fixed-position mobile pitfall (safe-area insets,
+   on-screen-keyboard, address-bar show/hide) by simply not fixing it
+   there. At 860px and up, `position: fixed` takes it out of flow and
+   anchors it to the right panel's own *content* inset
+   (--host-panel-right-inset + this panel's own --space-lg content
+   padding, so it lines up with where Game Summary's own values end,
+   not the panel's bare outer edge) and a consistent --space-lg from
+   the viewport bottom - never the raw viewport-right edge, so it can
+   never drift toward the fixed left room panel or touch the
+   scrollbar. z-index 10 matches the fixed sidebar's own layer - above
+   ordinary content, comfortably below DeckPicker's modal (z-index
+   200) and the sticky navbar (z-index 50), which never overlap it
+   anyway (one is pinned to the top, this to the bottom). */
+.host-floating-action {
+  width: 100%;
+  margin-top: var(--space-sm);
+}
+
+@media (min-width: 860px) {
+  .host-floating-action {
+    position: fixed;
+    width: auto;
+    right: calc(var(--host-panel-right-inset) + var(--space-lg));
+    bottom: var(--space-lg);
+    z-index: 10;
+    margin-top: 0;
+  }
 }
 
 .host-dashboard-header {
@@ -840,100 +941,3 @@
   font-weight: 600;
 }
 
-/* The true bottom of the dashboard surface - a direct child of
-   .host-dashboard-panel (the shape owner, see its own doc comment),
-   a *sibling* of .host-dashboard-content rather than nested inside its
-   padding. That's what lets it span the panel's full content width
-   with no negative-margin bleed trick to fake it: as a plain flex
-   column child of a zero-padding parent, it already stretches to that
-   parent's content box on its own. `margin-inline: -1px` closes the
-   one remaining gap - the panel's own 1px border (see .card) sits
-   between that content box and the panel's true visual edge - so the
-   bar's corners land exactly on the panel's own outer edge rather than
-   1px short of it. No box-shadow of its own, and the only visible
-   separation from the content above it is the border-top divider - so
-   there's nothing about it that could read as "a separate card."
-
-   Background is deliberately the app header's own translucent surface
-   (the exact same declaration as .app-header in AppLayout.css - not a
-   new colour, copied rather than shared via a variable since the
-   navbar itself is out of scope for this change), not the dashboard
-   panel's own .card surface: the navbar and this footer are meant to
-   read as matching bookends of the page, distinct from the settings
-   content between them.
-
-   Bottom corners are square by default and only round off once
-   useStickyFooterAtRest (see the hook's own doc comment) confirms the
-   bar has reached its true, unstuck resting position - while it's
-   still pinned mid-scroll above content that hasn't gone by yet, a
-   rounded corner would visually claim to be the dashboard's actual
-   bottom edge when it isn't one yet. The `.is-at-rest` modifier below
-   is the only place that adds the panel-matching `--radius-lg`. No
-   transition on the swap: this project's own tooling can't verify one
-   renders correctly (CSS transitions need actively-composited frames
-   to progress, which isn't guaranteed everywhere), so the safer,
-   fully-verifiable choice is an instant, correct swap over an
-   animated one that risks getting visibly stuck mid-transition.
-
-   overflow: clip on the panel was considered and rejected here: clip's
-   box is the *padding* edge, which - since the panel's own padding is
-   0 - sits exactly 1px inside its true border edge, i.e. precisely
-   where this bar's margin-inline correction pushes its own edge to. Add
-   clip and it re-trims the bar back to that inner edge, undoing the
-   fix and reintroducing the exact 1px seam it exists to close. Precise
-   geometry stands in for clipping here, not instead of a decision to
-   skip cleanup - it was evaluated and shown to actively conflict.
-
-   Sticky, not fixed, and only within the normal document scroll (same
-   reasoning as the sidebar): being the panel's last child bounds its
-   sticky range to the panel itself, so it can never drift over content
-   outside it or cover the Game Summary rows above once scrolled into
-   view, and there is still exactly one page scrollbar. */
-.host-dashboard-start-bar {
-  position: sticky;
-  bottom: 0;
-  margin-inline: -1px;
-  padding: 0.65rem var(--space-lg);
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  background: rgba(18, 14, 41, 0.45);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-top: 1px solid var(--color-border);
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-}
-
-.host-dashboard-start-bar.is-at-rest {
-  border-bottom-left-radius: var(--radius-lg);
-  border-bottom-right-radius: var(--radius-lg);
-}
-
-/* Same reasoning as .app-header's own fallback: browsers without
-   backdrop-filter support get a more opaque version of the same
-   colour instead of a washed-out, barely-there tint. */
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .host-dashboard-start-bar {
-    background: rgba(18, 14, 41, 0.88);
-  }
-}
-
-/* Below the sidebar's stacked-layout breakpoint, Start Game becomes
-   the full width of the bar rather than a right-aligned pill - a
-   clearer, easier-to-hit target once the dashboard is a single mobile
-   column instead of sitting beside the fixed room panel. */
-@media (max-width: 859px) {
-  .host-dashboard-start-bar .btn {
-    width: 100%;
-  }
-}
-
-/* useStickyFooterAtRest's own observed element - zero height, so it
-   never adds visible space or affects the panel's own layout/height,
-   but still has a real position in the document that
-   IntersectionObserver can evaluate. Its only job is to sit right
-   after the footer as the panel's true final pixel. */
-.host-dashboard-start-bar-sentinel {
-  height: 0;
-}
