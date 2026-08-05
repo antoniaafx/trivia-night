@@ -1345,26 +1345,29 @@ function GameSetupPhase({
  * how it opts out of that).
  *
  * Question and Reveal are two states of this ONE component, not two
- * screens - `revealed` switches what the Question Card's action area
- * and the left monitor panel show, but every wrapping element
- * (.live-game, .live-game-header, .live-game-question,
- * .live-game-question-body/-actions, .live-game-monitor) is rendered
- * unconditionally at the same position in the same tree every time.
- * That's what keeps the header, the two-column ratio, and both
- * panels' size/position pixel-identical across the Reveal Answer
- * press - React reconciles in place instead of swapping in a
- * differently-shaped screen, so there is no layout jump, no remount,
- * and a focused control (e.g. the primary action button itself)
- * never loses focus.
+ * screens - `revealed` switches what the primary action button and
+ * the left monitor panel show, but every wrapping element (.live-game,
+ * .live-game-header, .live-game-question, .live-game-monitor, the
+ * floating action button itself) is rendered unconditionally at the
+ * same position in the same tree every time. That's what keeps the
+ * header, the two-column ratio, and both panels' size/position
+ * pixel-identical across the Reveal Answer press - React reconciles
+ * in place instead of swapping in a differently-shaped screen, so
+ * there is no layout jump, no remount, and a focused control (e.g.
+ * the primary action button itself) never loses focus.
  *
- * The Question Card is the complete interaction module - title,
- * answer options, and the primary action all live inside the one
- * card, instead of a separate page-level footer bar underneath it.
- * The correct-answer treatment (Multiple Choice's highlighted "is-
- * correct" option, Typed Answer's host-only answer key) was already
- * Host-only information shown from the moment the Question started,
- * not something Reveal newly unlocks - so unlike the left panel nothing
- * about it needs to change when `revealed` flips.
+ * The Question Card is a pure content container - title and answer
+ * options only, sized so every option is visible at once with no
+ * internal scrollbar (see .live-game-question's own doc comment in
+ * the CSS). The primary action lives outside the card entirely, as
+ * a `.host-floating-action` - the exact same fixed bottom-right
+ * button already used by Invite Lobby/Game Setup/Leaderboard, not a
+ * card-level or page-level footer bar. The correct-answer treatment
+ * (Multiple Choice's highlighted "is-correct" option, Typed Answer's
+ * host-only answer key) was already Host-only information shown from
+ * the moment the Question started, not something Reveal newly
+ * unlocks - so unlike the left panel nothing about it needs to change
+ * when `revealed` flips.
  *
  * Left panel: Answered/Waiting roster before Reveal, Correct/
  * Incorrect/No Answer/Pending Review results after - both are pure
@@ -1477,15 +1480,17 @@ function LiveGamePhase({
           *visual* position of .live-game-monitor changes at the
           desktop breakpoint (see .live-game's own grid-template-areas
           in the CSS), not its place in the document. The Question Card
-          is the complete interaction module: a scrollable body
-          (title/options/review queue/error) plus a primary action area
-          that's always pinned to the card's own bottom edge, divided
-          from the body by a hairline rather than living in a separate
-          page-level footer. */}
+          is now a pure content container - title, answer options, and
+          (for Typed Answer) the host-only answer key - sized so all of
+          it is visible at once, with no internal scroll container; the
+          primary action lives outside it entirely (see
+          .host-floating-action below), the same pattern already used
+          by Invite Lobby/Game Setup/Leaderboard's Continue/Start Game/
+          Show Winner buttons, not a page/card-level footer bar. */}
       <section className="live-game-question" aria-label="Question">
-        <div className="live-game-question-body">
-          <h2>{question.prompt}</h2>
+        <h2 className="live-game-question-prompt">{question.prompt}</h2>
 
+        <div className="live-game-question-answers">
           {question.answerMethod === "multiple_choice" ? (
             <div className="live-game-answers">
               {question.options.map((option, index) => (
@@ -1496,7 +1501,7 @@ function LiveGamePhase({
                   <span className="live-game-answer-letter" aria-hidden="true">
                     {String.fromCharCode(65 + index)}
                   </span>
-                  <span>{option.text}</span>
+                  <span className="live-game-answer-text">{option.text}</span>
                   {option.id === question.correctOptionId && (
                     <span className="live-game-answer-correct-tag">Correct</span>
                   )}
@@ -1513,39 +1518,39 @@ function LiveGamePhase({
               )}
             </div>
           )}
-
-          {revealed && question.answerMethod === "typed_answer" && pendingItems.length > 0 && (
-            <TypedAnswerReviewQueue items={pendingItems} question={question} busyItemId={busyReviewId} onReview={onReview} />
-          )}
-
-          {!revealed && revealError && (
-            <p className="host-style-note" role="alert">
-              {revealError}
-            </p>
-          )}
         </div>
 
-        {/* Same action area, same position, in every state - only its
-            content changes: Reveal Answer before Reveal; a ghost
-            "Continue Anyway" while Typed Answer review is still
-            outstanding (scores could still change); Next Question/
-            Finish Game once every submission is finally graded. */}
-        <div className="live-game-question-actions">
-          {!revealed ? (
-            <button type="button" className="btn btn-primary" onClick={onReveal} disabled={revealing}>
-              {revealing ? "Revealing…" : "Reveal Answer"}
-            </button>
-          ) : pendingItems.length > 0 ? (
-            <button type="button" className="btn btn-ghost" onClick={onContinue}>
-              Continue Anyway — Scores May Still Change
-            </button>
-          ) : (
-            <button type="button" className="btn btn-primary" onClick={onContinue}>
-              {continueLabel}
-            </button>
-          )}
-        </div>
+        {revealed && question.answerMethod === "typed_answer" && pendingItems.length > 0 && (
+          <TypedAnswerReviewQueue items={pendingItems} question={question} busyItemId={busyReviewId} onReview={onReview} />
+        )}
+
+        {!revealed && revealError && (
+          <p className="host-style-note" role="alert">
+            {revealError}
+          </p>
+        )}
       </section>
+
+      {/* Same floating action every other Host screen uses (Continue /
+          Start Game / Show Winner) - reused verbatim, only the label
+          and click handler change here. Only ever one of these three
+          renders at a time: Reveal Answer before Reveal; a ghost
+          "Continue Anyway" while Typed Answer review is still
+          outstanding (scores could still change); Next Question/
+          Finish Game once every submission is finally graded. */}
+      {!revealed ? (
+        <button type="button" className="btn btn-primary host-floating-action" onClick={onReveal} disabled={revealing}>
+          {revealing ? "Revealing…" : "Reveal Answer"}
+        </button>
+      ) : pendingItems.length > 0 ? (
+        <button type="button" className="btn btn-ghost host-floating-action" onClick={onContinue}>
+          Continue Anyway — Scores May Still Change
+        </button>
+      ) : (
+        <button type="button" className="btn btn-primary host-floating-action" onClick={onContinue}>
+          {continueLabel}
+        </button>
+      )}
 
       <aside
         className="live-game-monitor"

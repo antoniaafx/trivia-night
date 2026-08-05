@@ -69,12 +69,23 @@
    scroll layout: a header row plus a two-column body (Player Monitor /
    Question Card), the same --app-header-height/space-lg arithmetic the
    fixed sidebar already uses, so it's exactly the space actually
-   available below the sticky navbar. There's no separate footer row -
-   the Question Card carries its own primary action internally (see
-   .live-game-question-actions), so both columns stretch to fill the
-   same "monitor question" row and read as one balanced two-column
-   surface instead of three stacked bands. */
+   available below the sticky navbar. There's no footer row of any
+   kind - the primary action is a `.host-floating-action` (a grid
+   child spanning both columns, placed via the `--host-panel-right-
+   inset` custom property below; see .host-floating-action's own doc
+   comment) rather than living inside either column, so both columns
+   stretch to fill the same "monitor question" row and read as one
+   balanced two-column surface instead of three stacked bands. */
 .live-game {
+  /* Mirrors .host-dashboard/.host-leaderboard's own identical
+     declaration (see their doc comments) - redeclared here with the
+     same formula/tokens since this screen has no shared ancestor with
+     either to inherit the value from, so .host-floating-action aligns
+     with this screen's own content edge instead of a value that only
+     happens to work elsewhere. */
+  --host-panel-right-inset: calc(
+    var(--space-md) + max(0px, calc((100% - (2 * var(--space-md)) - var(--max-content-width)) / 2))
+  );
   width: 100%;
   max-width: var(--max-content-width);
   display: grid;
@@ -85,6 +96,19 @@
   grid-template-columns: 1fr;
   gap: var(--space-sm);
   text-align: left;
+}
+
+/* The floating action button is an unassigned grid child, not given a
+   named `grid-area`: `grid-column: 1 / -1` (spans whatever column
+   count is active, 1 pre-860px / 2 from 860px on) is enough for it to
+   auto-place into its own new row after header/question/monitor at
+   any width where it's genuinely still an in-flow element (below
+   860px). From 860px on, `.host-floating-action` itself switches to
+   `position: fixed` (see that rule), which removes it from grid flow
+   entirely - this `grid-column` becomes a no-op at that point, safe
+   to leave unconditional. */
+.live-game > .host-floating-action {
+  grid-column: 1 / -1;
 }
 
 .live-game-header {
@@ -135,60 +159,126 @@
   color: var(--color-orange);
 }
 
-/* The Question Card - now the complete interaction module (title,
-   answer options, and the primary action all live inside this one
-   card) rather than a card with a separate page-level footer bar
-   underneath it. Split into a body (which scrolls on its own at the
-   desktop breakpoint if the question genuinely doesn't fit) and an
-   actions area that stays put at the card's own bottom edge - see
-   .live-game-question-actions below for how the divider between them
-   is drawn. */
+/* The Question Card - a pure content container now (title + answer
+   options only; for Typed Answer, the host-only answer key in place
+   of the options grid). The primary action lives entirely outside
+   this card as a `.host-floating-action` (see .live-game's own doc
+   comment and .host-floating-action below) - no scroll container, no
+   footer, no divider. `min-height: 0` lets this card genuinely shrink
+   to the grid row's own bounded height (see .live-game's
+   `calc(100vh...)` at 860px) instead of overflowing it; its two
+   children split that height with the prompt sized to its own content
+   (`flex-shrink: 0`) and the answers area (`.live-game-question-
+   answers`) taking whatever's left via `flex: 1; min-height: 0`, so
+   there is never a reason for either to need its own scrollbar as
+   long as content stays within the Deck Bible limits documented on
+   LiveGamePhase's own doc comment. */
 .live-game-question {
   grid-area: question;
   display: flex;
   flex-direction: column;
+  gap: var(--space-md);
   min-height: 0;
-  padding: var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-soft);
 }
 
-.live-game-question-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  min-height: 0;
+@media (min-width: 860px) {
+  /* Reserves the floating action button's own footprint below the
+     card's last row of content - identical formula/tokens to
+     .host-dashboard-content and .host-leaderboard's own bottom
+     reservation (see their doc comments), so the button never sits on
+     top of an answer card. */
+  .live-game-question {
+    padding-bottom: calc(var(--space-lg) * 2 + var(--space-md));
+  }
 }
 
-.live-game-question h2 {
+/* The question prompt - responsive via clamp() so a short prompt
+   stays large and a longer one (up to the Deck Bible's recommended
+   2-3 line maximum) scales down to keep the answers area below it
+   comfortably sized, rather than a fixed size that either wastes
+   space or forces the answers area to shrink unpredictably. Never
+   truncated/ellipsized - wraps naturally, however many lines that
+   takes. */
+.live-game-question-prompt {
+  flex-shrink: 0;
   margin: 0;
-  font-size: 1.5rem;
+  font-size: clamp(1.15rem, 1rem + 1.1vw, 1.65rem);
   line-height: 1.3;
 }
 
+/* Wraps whichever of the two answer presentations is active (Multiple
+   Choice's grid or Typed Answer's host-only key) so both get the same
+   "fill the remaining card height" treatment via the shared
+   `flex: 1; min-height: 0`, instead of one of the two needing
+   special-cased sizing. */
+.live-game-question-answers {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Fixed 2-column grid at the desktop breakpoint (A | B / C | D, per
+   the approved layout) rather than `auto-fit`, which would drift to
+   3+ columns on this card's actual available width - see this rule's
+   own reasoning in TRIVIA_NIGHT_MEMORY.md. Rows stay content-sized
+   (not stretched to consume the answers area's full available
+   height) - stretching would make cards balloon on tall/large
+   viewports (a one-line answer in a 300px+ tall card), the opposite
+   of "cards should become slightly more compact." Instead
+   `align-content: center` centers the naturally-sized 2x2 block
+   within whatever room is available, so extra height on a large
+   screen becomes breathing room around the grid rather than inflated
+   cards. Below 860px, `auto-fit` degrades fluidly (2 columns where
+   the (typically full-width, single-column) mobile layout leaves
+   room, 1 column otherwise) without a second, competing breakpoint. */
 .live-game-answers {
+  flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  align-content: center;
   gap: var(--space-sm);
 }
 
+@media (min-width: 860px) {
+  .live-game-answers {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* `min-height` (not a stretched/forced height) is what makes all four
+   cards read as equal height for realistic Deck Bible content (answers
+   up to two lines) without ballooning past that on a large screen -
+   a one-line and a two-line option in the same reveal both reach this
+   floor, and genuinely long two-line content still just grows the
+   card that needs it. `align-items: center` keeps the letter badge/
+   "Correct" tag vertically centered against the card's own (now
+   compact, not stretched) height. */
 .live-game-answer-card {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  padding: 0.85rem var(--space-md);
+  min-height: 4.25rem;
+  padding: 0.75rem var(--space-md);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
   background: var(--color-bg-secondary);
-  font-size: 1.05rem;
+  font-size: clamp(0.9rem, 0.82rem + 0.35vw, 1.05rem);
+  line-height: 1.35;
 }
 
 /* Host-only: which option is correct, visible before Reveal Answer is
    pressed - the exact same information the old plain-text "(correct)"
    suffix gave, just styled as one of these cards instead of a list
-   row. */
+   row. Only `border-color`/`background` change (same 1px border
+   width as the base rule) so this never alters the card's own
+   dimensions. */
 .live-game-answer-card.is-correct {
   border-color: var(--color-teal);
   background: rgba(45, 212, 191, 0.14);
@@ -213,6 +303,13 @@
   color: var(--color-text-inverse);
 }
 
+/* Safe two-line wrapping for a long option - never overflows or clips
+   its card, and never forces the card wider than its grid column. */
+.live-game-answer-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .live-game-answer-correct-tag {
   margin-left: auto;
   flex-shrink: 0;
@@ -223,22 +320,22 @@
   color: var(--color-teal);
 }
 
-/* The Question Card's primary action area - a hairline divider (not a
-   separate surface/background the way the old page-level footer bar
-   had one) is enough to read as "part of this card" rather than a bar
-   bolted on underneath it. RevealPhase's own Continue button,
-   unchanged, plays the same role one phase later. Full-width so the
-   button reads as the card's own bottom edge rather than a
-   right-aligned control floating in a bigger bar. */
-.live-game-question-actions {
-  flex-shrink: 0;
-  margin-top: var(--space-lg);
-  padding-top: var(--space-md);
-  border-top: 1px solid var(--color-border);
-}
-
-.live-game-question-actions .btn {
+/* Typed Answer's host-only key plays the same "fills the answers
+   area" role the Multiple Choice grid plays above - centered within
+   whatever height is available rather than pinned to the top with
+   dead space below it. */
+.host-typed-answer-key {
+  flex: 1;
+  min-height: 0;
   width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: left;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
 }
 
 .live-game-monitor {
@@ -401,15 +498,6 @@
       "monitor question";
     grid-template-columns: minmax(260px, 30%) 1fr;
     grid-template-rows: auto 1fr;
-  }
-
-  /* Only the card's own body scrolls - the actions area stays pinned
-     to the card's bottom edge no matter how long the question/options
-     content gets, instead of the whole card (button included)
-     scrolling out of view. */
-  .live-game-question-body {
-    flex: 1;
-    overflow-y: auto;
   }
 
   /* The one deliberate exception to "no nested scrollbar" on this
@@ -653,15 +741,6 @@
 .host-aggregate {
   color: var(--color-text-muted);
   font-size: 1rem;
-}
-
-.host-typed-answer-key {
-  width: 100%;
-  text-align: left;
-  padding: 0.75rem 1rem;
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
 }
 
 .host-review-queue {
