@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
 import { useClientId } from "../hooks/useClientId";
 import { useCreatorId } from "../hooks/useCreatorId";
@@ -417,7 +417,7 @@ function HostControlPanelPage() {
   return (
     <div className="host-lobby">
       {room.phase === "lobby" && lobbyStage === "invite" && (
-        <InviteLobbyCard
+        <InviteLobbyPhase
           roomCode={roomCode}
           joinUrl={joinUrl}
           stageUrl={stageUrl}
@@ -664,6 +664,46 @@ function useRosterLimit(): number {
 }
 
 /**
+ * Detects whether a `position: sticky; bottom: 0` footer (Start Game /
+ * Continue) has reached its true, unstuck resting position at the
+ * bottom of its containing panel, as opposed to still being pinned
+ * mid-scroll above content that hasn't gone by yet - see
+ * .host-dashboard-start-bar's own doc comment for why that distinction
+ * is what drives its square-vs-rounded bottom corners.
+ *
+ * The returned `sentinelRef` must be attached to a zero-height element
+ * placed immediately after the footer, inside the same containing
+ * panel (see .host-dashboard-start-bar-sentinel) - once that sentinel
+ * scrolls into view, real content exists below the footer, which can
+ * only be true once the footer has stopped sticking and returned to
+ * its natural position. IntersectionObserver, not a scroll listener:
+ * no per-frame polling, no manual getBoundingClientRect() math on
+ * every scroll event, and it re-evaluates automatically on resize or
+ * layout changes for free. The one synchronous measurement inside
+ * useLayoutEffect exists only to set the correct initial value before
+ * the browser's first paint - IntersectionObserver callbacks are
+ * always asynchronous, so without it there'd be a one-frame flash of
+ * the wrong corner state (square, even when the panel is short enough
+ * that the footer is at rest from the very first frame) before the
+ * observer's own first callback arrives.
+ */
+function useStickyFooterAtRest() {
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const [isAtRest, setIsAtRest] = useState(false);
+
+  useLayoutEffect(() => {
+    const node = sentinelRef.current;
+    if (!node) return;
+    setIsAtRest(node.getBoundingClientRect().top < window.innerHeight);
+    const observer = new IntersectionObserver(([entry]) => setIsAtRest(entry.isIntersecting), { threshold: 0 });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  return { sentinelRef, isAtRest };
+}
+
+/**
  * Stage 1 - just getting people connected. Deliberately shows no game
  * settings at all (not even the Competition Style picker) - that's
  * Game Setup's job. Continue is always available, even with zero
@@ -671,15 +711,14 @@ function useRosterLimit(): number {
  * ("Continue without players") rather than implying something is
  * missing, as "Continue Anyway" used to.
  *
- * Merges what used to be two stacked cards (QR/room-code, and a
- * separate "Waiting for players..." card) into one: the QR/code/status/
- * Open Stage block and the Player count/roster/Continue block, side by
- * side on wide viewports and stacked on narrow ones (see
- * .invite-lobby-card's CSS). Every other phase still renders its own
- * simple, unmerged QR card (unchanged, see the ternary in the parent
- * component) - this merge is specific to the first thing a Host sees.
+ * The exact same fixed room panel + right-panel dashboard system as
+ * GameSetupPhase (see HostRoomPanel and .host-dashboard-panel's own
+ * doc comments) - not a visually-similar rebuild, the same shared
+ * components and CSS classes, so the frame around the content is
+ * pixel-identical and pressing Continue only ever swaps what's inside
+ * .host-dashboard-content and the footer, never the frame itself.
  */
-function InviteLobbyCard({
+function InviteLobbyPhase({
   roomCode,
   joinUrl,
   stageUrl,
@@ -703,44 +742,61 @@ function InviteLobbyCard({
   const visiblePlayers = joinedPlayers.slice(0, rosterLimit);
   const remaining = count - visiblePlayers.length;
   const continueLabel = count === 0 ? "Continue without players" : "Continue";
+  const { sentinelRef, isAtRest } = useStickyFooterAtRest();
 
   return (
-    <div className="invite-lobby-card card">
-      <div className="invite-lobby-primary">
-        <div className="invite-qr">
-          <RoomQrCode joinUrl={joinUrl} size={160} />
-        </div>
-        <p className="host-lobby-code">
-          Room code: <strong>{roomCode}</strong>
-        </p>
-        <p className="host-lobby-status" role="status">
-          {describeStatus(connectionStatus)}
-        </p>
-        <a href={stageUrl} target="_blank" rel="noreferrer" className="btn btn-ghost">
-          Open Stage
-        </a>
-      </div>
+    <div className="host-dashboard">
+      <HostRoomPanel
+        roomCode={roomCode}
+        joinUrl={joinUrl}
+        stageUrl={stageUrl}
+        connectionStatus={connectionStatus}
+        showBackToInvite={false}
+      />
 
-      <div className="invite-lobby-secondary">
-        <p className="invite-lobby-count" role="status">
-          {count} Player{count === 1 ? "" : "s"} Joined
-        </p>
-        {count > 0 && (
-          <ul className="invite-lobby-roster-list">
-            {visiblePlayers.map((player) => (
-              <li key={player.clientId}>{player.displayName}</li>
-            ))}
-            {remaining > 0 && <li className="invite-lobby-roster-more">+{remaining} more</li>}
-          </ul>
-        )}
-        {continueError && (
-          <p className="host-style-note" role="alert">
-            {continueError}
-          </p>
-        )}
-        <button type="button" className="btn btn-primary" onClick={onContinue} disabled={continuing}>
-          {continuing ? "Continuing…" : continueLabel}
-        </button>
+      <div className="host-dashboard-main">
+        <div className="host-dashboard-panel card">
+          <div className="host-dashboard-content">
+            <div className="host-dashboard-header">
+              <div>
+                <p className="host-dashboard-eyebrow">Host Lobby</p>
+                <h2>Waiting for Players</h2>
+              </div>
+            </div>
+
+            <section className="host-dashboard-section">
+              <h3>Players Joining</h3>
+              <p className="host-room-status-count" role="status">
+                {count} Player{count === 1 ? "" : "s"} Joined
+              </p>
+              {count === 0 ? (
+                <p className="host-dashboard-section-helper">Share the QR code or room code to invite Players.</p>
+              ) : (
+                <ul className="host-room-status-roster">
+                  {visiblePlayers.map((player) => (
+                    <li key={player.clientId}>
+                      <span aria-hidden="true">{avatarForClientId(player.clientId)}</span> {player.displayName}
+                    </li>
+                  ))}
+                  {remaining > 0 && <li className="host-roster-more">+{remaining} more</li>}
+                </ul>
+              )}
+            </section>
+
+            {continueError && (
+              <p className="host-style-note" role="alert">
+                {continueError}
+              </p>
+            )}
+          </div>
+
+          <div className={`host-dashboard-start-bar${isAtRest ? " is-at-rest" : ""}`}>
+            <button type="button" className="btn btn-primary" onClick={onContinue} disabled={continuing}>
+              {continuing ? "Continuing…" : continueLabel}
+            </button>
+          </div>
+          <div ref={sentinelRef} aria-hidden="true" className="host-dashboard-start-bar-sentinel" />
+        </div>
       </div>
     </div>
   );
@@ -989,6 +1045,78 @@ function GameSummaryCard({
  * view toggle back to the QR screen; it never touches anything already
  * configured here.
  */
+
+/**
+ * The fixed left room panel - permanent room info only (QR, code, Live
+ * status, Open Stage), identical wherever it's used. Shared between
+ * GameSetupPhase and InviteLobbyPhase (its only two callers) precisely
+ * so it's the same component, not two hand-copies that could quietly
+ * drift apart: press Continue on the Invite Lobby or Back to Invite in
+ * Game Setup and this panel doesn't move, resize, or re-render
+ * differently, because it's the exact same tree either way. Back to
+ * Invite is the one piece that's contextual - shown in Game Setup (to
+ * return to the Invite Lobby) and omitted on the Invite Lobby itself
+ * (there's nowhere to "back" to from the first screen).
+ */
+function HostRoomPanel({
+  roomCode,
+  joinUrl,
+  stageUrl,
+  connectionStatus,
+  showBackToInvite,
+  onReturnToInvite,
+  returningToInvite,
+  returnError,
+  busy,
+}: {
+  roomCode: string;
+  joinUrl: string;
+  stageUrl: string;
+  connectionStatus: string;
+  showBackToInvite: boolean;
+  onReturnToInvite?: () => void;
+  returningToInvite?: boolean;
+  returnError?: string | null;
+  busy?: boolean;
+}) {
+  return (
+    <aside className="host-dashboard-sidebar card">
+      {showBackToInvite && (
+        <button
+          type="button"
+          className="btn btn-ghost host-dashboard-back"
+          onClick={onReturnToInvite}
+          disabled={returningToInvite || busy}
+        >
+          {returningToInvite ? "Returning…" : "‹ Back to Invite"}
+        </button>
+      )}
+      {returnError && (
+        <p className="host-style-note" role="alert">
+          {returnError}
+        </p>
+      )}
+
+      <div className="host-dashboard-sidebar-identity">
+        <div className="invite-qr">
+          <RoomQrCode joinUrl={joinUrl} size={110} />
+        </div>
+        <p className="host-lobby-code">
+          Room Code: <strong>{roomCode}</strong>
+        </p>
+        <p className="host-sidebar-live" role="status">
+          <span className="host-sidebar-live-dot" aria-hidden="true" />
+          {connectionStatus === "connected" ? "Live" : describeStatus(connectionStatus)}
+        </p>
+      </div>
+
+      <a href={stageUrl} target="_blank" rel="noreferrer" className="btn btn-ghost">
+        Open Stage
+      </a>
+    </aside>
+  );
+}
+
 function GameSetupPhase({
   roomCode,
   joinUrl,
@@ -1051,6 +1179,7 @@ function GameSetupPhase({
   const isRematch = deckSnapshot.kind === "game_plan";
   const hostParticipation = deckSnapshot.hostParticipation;
   const [pickerOpen, setPickerOpen] = useState(false);
+  const { sentinelRef, isAtRest } = useStickyFooterAtRest();
 
   // An empty Deck selection is never blocked - it just means Quick Play
   // (the built-in sample Questions), which is always a valid, ready-to-
@@ -1077,40 +1206,17 @@ function GameSetupPhase({
 
   return (
     <div className="host-dashboard">
-      <aside className="host-dashboard-sidebar card">
-        {!isRematch && (
-          <button
-            type="button"
-            className="btn btn-ghost host-dashboard-back"
-            onClick={onReturnToInvite}
-            disabled={returningToInvite || starting}
-          >
-            {returningToInvite ? "Returning…" : "‹ Back to Invite"}
-          </button>
-        )}
-        {returnError && (
-          <p className="host-style-note" role="alert">
-            {returnError}
-          </p>
-        )}
-
-        <div className="host-dashboard-sidebar-identity">
-          <div className="invite-qr">
-            <RoomQrCode joinUrl={joinUrl} size={110} />
-          </div>
-          <p className="host-lobby-code">
-            Room Code: <strong>{roomCode}</strong>
-          </p>
-          <p className="host-sidebar-live" role="status">
-            <span className="host-sidebar-live-dot" aria-hidden="true" />
-            {connectionStatus === "connected" ? "Live" : describeStatus(connectionStatus)}
-          </p>
-        </div>
-
-        <a href={stageUrl} target="_blank" rel="noreferrer" className="btn btn-ghost">
-          Open Stage
-        </a>
-      </aside>
+      <HostRoomPanel
+        roomCode={roomCode}
+        joinUrl={joinUrl}
+        stageUrl={stageUrl}
+        connectionStatus={connectionStatus}
+        showBackToInvite={!isRematch}
+        onReturnToInvite={onReturnToInvite}
+        returningToInvite={returningToInvite}
+        returnError={returnError}
+        busy={starting}
+      />
 
       <div className="host-dashboard-main">
         <div className="host-dashboard-panel card">
@@ -1223,7 +1329,7 @@ function GameSetupPhase({
               panel itself, so it can never drift over content outside
               it or cover the Game Summary rows above once they've
               scrolled into view. */}
-          <div className="host-dashboard-start-bar">
+          <div className={`host-dashboard-start-bar${isAtRest ? " is-at-rest" : ""}`}>
             <button
               type="button"
               className="btn btn-primary"
@@ -1233,6 +1339,7 @@ function GameSetupPhase({
               {starting ? "Starting…" : isRematch ? "Start Rematch" : "Start Game"}
             </button>
           </div>
+          <div ref={sentinelRef} aria-hidden="true" className="host-dashboard-start-bar-sentinel" />
         </div>
       </div>
     </div>

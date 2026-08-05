@@ -16,28 +16,12 @@
   gap: var(--space-xs);
 }
 
-/* Invite Lobby - the merged QR/room-code + player-count/roster/Continue
-   card the Host sees first. Single column on narrow viewports; a
-   two-column row once there's enough width for both halves to sit
-   comfortably side by side (see the min-width breakpoint below). */
-.invite-lobby-card {
-  width: 100%;
-  max-width: 480px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-md);
-}
-
-.invite-lobby-primary,
-.invite-lobby-secondary {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
+/* Base size for a standalone QR (the simple, unmerged QR card every
+   phase other than Invite Lobby/Game Setup still renders - see the
+   fallback branch in the parent component). Inside
+   .host-dashboard-sidebar this is overridden down to 100px by a more
+   specific selector (see that rule's own doc comment) - the two never
+   conflict since the sidebar's version always wins on specificity. */
 .invite-qr {
   width: 130px;
   max-width: 100%;
@@ -49,71 +33,14 @@
   height: auto;
 }
 
-.invite-lobby-count {
-  font-weight: 600;
-  font-size: 1.05rem;
-}
-
-.invite-lobby-roster-list {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.4rem;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.invite-lobby-roster-list li {
-  padding: 0.3rem 0.7rem;
-  border-radius: var(--radius-pill);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  font-size: 0.85rem;
-}
-
-.invite-lobby-roster-more {
+/* The Invite Lobby's roster "+N more" indicator (see InviteLobbyPhase) -
+   the chip box itself comes from .host-room-status-roster li's own
+   styling (background/border/radius/padding, shared with Game Setup's
+   Room Status roster); this only adds the muted, italic treatment that
+   marks it as a summary rather than a real Player. */
+.host-roster-more {
   color: var(--color-text-muted);
   font-style: italic;
-}
-
-@media (max-width: 400px) {
-  .invite-qr {
-    width: 100px;
-  }
-}
-
-@media (min-width: 700px) {
-  .invite-lobby-card {
-    max-width: 640px;
-    flex-direction: row;
-    align-items: center;
-    gap: var(--space-lg);
-  }
-
-  .invite-lobby-primary,
-  .invite-lobby-secondary {
-    flex: 1;
-    justify-content: center;
-  }
-}
-
-/* Short viewports (phone landscape): height, not width, is the scarce
-   axis here, so this is keyed on max-height rather than max-width.
-   500px covers real landscape-phone heights (~375-430px), well clear
-   of any laptop/tablet/desktop viewport this card also renders at.
-   The column gaps (not the row gap between the two columns, which is
-   horizontal space here and irrelevant to height) are what actually
-   compress the vertical stack. */
-@media (max-height: 500px) {
-  .invite-qr {
-    width: 68px;
-  }
-
-  .invite-lobby-primary,
-  .invite-lobby-secondary {
-    gap: 0.4rem;
-  }
 }
 
 .host-lobby-code {
@@ -640,9 +567,18 @@
    navbar itself is out of scope for this change), not the dashboard
    panel's own .card surface: the navbar and this footer are meant to
    read as matching bookends of the page, distinct from the settings
-   content between them. Its own bottom-left/right radius still matches
-   the panel's (`--radius-lg`, top radius left at the default 0) so the
-   shape is correct regardless of the background choice above it.
+   content between them.
+
+   Bottom corners are square by default and only round off once
+   useStickyFooterAtRest (see the hook's own doc comment) confirms the
+   bar has reached its true, unstuck resting position - while it's
+   still pinned mid-scroll above content that hasn't gone by yet, a
+   rounded corner would visually claim to be the dashboard's actual
+   bottom edge when it isn't one yet. The `.is-at-rest` modifier below
+   is the only place that adds the panel-matching `--radius-lg`. No
+   transition on the swap, deliberately: it happens exactly once, at
+   the instant the bar reaches its resting spot, and an animated corner
+   at that precise moment reads as more distracting than helpful.
 
    overflow: clip on the panel was considered and rejected here: clip's
    box is the *padding* edge, which - since the panel's own padding is
@@ -670,6 +606,11 @@
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-top: 1px solid var(--color-border);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.host-dashboard-start-bar.is-at-rest {
   border-bottom-left-radius: var(--radius-lg);
   border-bottom-right-radius: var(--radius-lg);
 }
@@ -691,4 +632,13 @@
   .host-dashboard-start-bar .btn {
     width: 100%;
   }
+}
+
+/* useStickyFooterAtRest's own observed element - zero height, so it
+   never adds visible space or affects the panel's own layout/height,
+   but still has a real position in the document that
+   IntersectionObserver can evaluate. Its only job is to sit right
+   after the footer as the panel's true final pixel. */
+.host-dashboard-start-bar-sentinel {
+  height: 0;
 }

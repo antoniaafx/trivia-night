@@ -11,6 +11,21 @@ body {
   height: 100%;
 }
 
+/* Reserves the vertical scrollbar's width permanently, whether or not
+   the current page's content is actually tall enough to need one.
+   Without this, a `position: fixed` element whose horizontal offset is
+   computed from percentage/vw units (see the Host workspace's left
+   room panel) shifts by the scrollbar's width the moment a page's
+   content crosses the "needs to scroll" threshold - concretely, the
+   Host Invite Lobby (short) and Host Dashboard (tall) previously sat a
+   few pixels apart even though they're meant to share one perfectly
+   stable frame. A permanently-reserved gutter means the viewport's
+   available width - and therefore that fixed element's position - is
+   identical whether the current page happens to scroll or not. */
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   margin: 0;
   font-family: var(--font-body);
