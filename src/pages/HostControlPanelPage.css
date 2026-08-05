@@ -52,6 +52,334 @@
   font-size: 0.9rem;
 }
 
+/* The Live Game Control Center (QuestionPhase) - the one screen a
+   Host actively watches for the whole game, so unlike every other
+   phase it doesn't sit inside .host-lobby's generic centred/narrow
+   flow. `text-align: left` and a much wider `max-width` (matching the
+   Dashboard's own --max-content-width, for visual consistency with
+   the rest of the Host workspace rather than stretching further than
+   it does) opt straight out of .host-lobby's centring.
+
+   Mobile-first: auto height, stacked in plain document order (see the
+   grid-template-areas below) - if content genuinely doesn't fit a very
+   short device, the page scrolls rather than clipping anything,
+   exactly as the brief's own mobile guidance allows. At the Dashboard's
+   own 860px breakpoint (reused deliberately - one Host workspace
+   breakpoint, not a competing one) this becomes a fixed-height, no-
+   scroll, three-region layout: the same --app-header-height/space-lg
+   arithmetic the fixed sidebar already uses, so it's exactly the
+   space actually available below the sticky navbar. */
+.live-game {
+  width: 100%;
+  max-width: var(--max-content-width);
+  display: grid;
+  grid-template-areas:
+    "header"
+    "question"
+    "footer"
+    "monitor";
+  grid-template-columns: 1fr;
+  gap: var(--space-sm);
+  text-align: left;
+}
+
+.live-game-header {
+  grid-area: header;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.live-game-eyebrow {
+  margin: 0 0 0.15rem;
+  font-family: var(--font-heading);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-teal);
+}
+
+.live-game-category {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--color-text-muted);
+}
+
+/* The single most important thing on this screen while a Question is
+   live - large and bold enough to read at a glance, not competing for
+   attention with anything else in the header. `is-urgent` is a purely
+   visual accent (the countdown itself, still changing every second,
+   is what actually conveys "time is short" - colour never carries that
+   meaning alone). */
+.live-game-timer {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 2.75rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-game-timer.is-urgent {
+  color: var(--color-orange);
+}
+
+.live-game-question {
+  grid-area: question;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-height: 0;
+  padding: var(--space-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+}
+
+.live-game-question h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.3;
+}
+
+.live-game-answers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-sm);
+}
+
+.live-game-answer-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0.85rem var(--space-md);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  font-size: 1.05rem;
+}
+
+/* Host-only: which option is correct, visible before Reveal Answer is
+   pressed - the exact same information the old plain-text "(correct)"
+   suffix gave, just styled as one of these cards instead of a list
+   row. */
+.live-game-answer-card.is-correct {
+  border-color: var(--color-teal);
+  background: rgba(45, 212, 191, 0.14);
+}
+
+.live-game-answer-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--color-surface-strong, var(--color-surface));
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.live-game-answer-card.is-correct .live-game-answer-letter {
+  background: var(--color-teal);
+  color: var(--color-text-inverse);
+}
+
+.live-game-answer-correct-tag {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-teal);
+}
+
+/* Same surface as the navbar and the Dashboard/Invite Lobby's own
+   action bar (see .app-header and .host-dashboard-start-bar) - one
+   consistent "action bar" identity across the whole Host workspace,
+   not a one-off treatment just for this screen. Contains only the
+   single primary action for the current moment (Reveal Answer here;
+   RevealPhase's own Continue button, unchanged, plays the same role
+   one phase later). */
+.live-game-footer {
+  grid-area: footer;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0.65rem var(--space-lg);
+  background: rgba(18, 14, 41, 0.45);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .live-game-footer {
+    background: rgba(18, 14, 41, 0.88);
+  }
+}
+
+.live-game-footer .btn {
+  width: 100%;
+}
+
+.live-game-monitor {
+  grid-area: monitor;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-height: 0;
+  padding: var(--space-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.live-game-monitor-title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.live-game-monitor-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.live-game-monitor-group-label {
+  margin: 0 0 0.35rem;
+  font-family: var(--font-heading);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.live-game-monitor-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.live-game-monitor-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+}
+
+.live-game-monitor-row.is-answered {
+  background: var(--color-surface-strong, var(--color-surface));
+  color: var(--color-teal);
+}
+
+.live-game-monitor-row.is-waiting {
+  color: var(--color-text-muted);
+}
+
+/* Only ever appears in place of the Waiting group (see QuestionPhase) -
+   never alongside it, so there's no ambiguity about what it replaces. */
+.live-game-monitor-all-done {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--color-teal);
+  font-weight: 600;
+}
+
+/* Subtle, one-time "you're now in the Answered list" cue - plays once
+   per competitor per Question (React only (re)mounts this <li> the
+   moment it first appears here; re-renders while it stays reuse the
+   same node and don't replay it). Respects reduced-motion: the list
+   membership change itself already communicates the state, this is
+   pure polish on top. */
+@media (prefers-reduced-motion: no-preference) {
+  .live-game-monitor-row.is-answered {
+    animation: live-game-row-in 220ms ease;
+  }
+}
+
+@keyframes live-game-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.live-game-monitor-timer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+.live-game-monitor-note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+@media (min-width: 860px) {
+  .live-game {
+    height: calc(100vh - var(--app-header-height) - (2 * var(--space-lg)));
+    height: calc(100dvh - var(--app-header-height) - (2 * var(--space-lg)));
+    grid-template-areas:
+      "header header"
+      "monitor question"
+      "footer footer";
+    grid-template-columns: minmax(260px, 30%) 1fr;
+    grid-template-rows: auto 1fr auto;
+  }
+
+  .live-game-question {
+    overflow-y: auto;
+  }
+
+  /* The one deliberate exception to "no nested scrollbar" on this
+     screen: a roster long enough to overflow its column needs the
+     Host to still be able to see everyone, and truncating identities
+     (the way the Dashboard's own roster summaries do) would hide
+     exactly the information this column exists to show. Typical room
+     sizes fit without ever engaging this. */
+  .live-game-monitor-list {
+    overflow-y: auto;
+  }
+
+  .live-game-footer {
+    justify-content: flex-end;
+  }
+
+  .live-game-footer .btn {
+    width: auto;
+  }
+}
+
 .host-phase {
   width: 100%;
   max-width: 480px;
@@ -69,46 +397,9 @@
   color: var(--color-teal);
 }
 
-.host-options {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  text-align: left;
-}
-
-.host-options li {
-  padding: 0.6rem 1rem;
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-}
-
-.host-options li.host-options-correct {
-  border-color: var(--color-teal);
-  color: var(--color-teal);
-  font-weight: 600;
-}
-
-.host-answered-count,
 .host-aggregate {
   color: var(--color-text-muted);
   font-size: 1rem;
-}
-
-.host-question-status {
-  display: flex;
-  gap: var(--space-md);
-  flex-wrap: wrap;
-  color: var(--color-text-muted);
-  font-size: 1rem;
-  font-family: var(--font-heading);
-}
-
-.host-question-actions {
-  display: flex;
-  gap: var(--space-sm);
-  flex-wrap: wrap;
 }
 
 .host-typed-answer-key {
@@ -576,9 +867,11 @@
    rounded corner would visually claim to be the dashboard's actual
    bottom edge when it isn't one yet. The `.is-at-rest` modifier below
    is the only place that adds the panel-matching `--radius-lg`. No
-   transition on the swap, deliberately: it happens exactly once, at
-   the instant the bar reaches its resting spot, and an animated corner
-   at that precise moment reads as more distracting than helpful.
+   transition on the swap: this project's own tooling can't verify one
+   renders correctly (CSS transitions need actively-composited frames
+   to progress, which isn't guaranteed everywhere), so the safer,
+   fully-verifiable choice is an instant, correct swap over an
+   animated one that risks getting visibly stuck mid-transition.
 
    overflow: clip on the panel was considered and rejected here: clip's
    box is the *padding* edge, which - since the panel's own padding is
