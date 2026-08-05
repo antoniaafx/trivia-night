@@ -278,52 +278,77 @@
 }
 
 /* Host Dashboard - Game Setup's layout. A persistent sidebar (permanent
-   room info only: QR, code, Open Stage) next to one cohesive settings
+   room info only: QR, code, Open Stage) beside one cohesive settings
    panel that also owns all *live* room state (Room Status), rather than
    splitting the same information across two places. Single column
-   below the sidebar's comfortable minimum width; two columns - sidebar
-   sticky, panel scrolling with the page - above it. */
+   below the sidebar's comfortable minimum width; a true fixed sidebar
+   (see the min-width breakpoint below) once there's room for one. */
 .host-dashboard {
+  /* Defined here, not on .host-dashboard-sidebar itself: custom
+     properties inherit down the DOM tree, and .host-dashboard-main
+     (which also needs this value, to reserve the fixed sidebar's space)
+     is that element's *sibling*, not its descendant - only their shared
+     parent can hand the same value to both. */
+  --host-sidebar-width: 280px;
   width: 100%;
   max-width: 1100px;
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--space-md);
+  display: block;
   text-align: left;
 }
 
 @media (min-width: 860px) {
-  .host-dashboard {
-    grid-template-columns: minmax(240px, 300px) 1fr;
-    align-items: start;
+  /* .host-dashboard-sidebar is `position: fixed` at this breakpoint (see
+     below), which removes it from layout entirely - .host-dashboard-main
+     reserves the equivalent space itself instead, via margin-left. */
+  .host-dashboard-main {
+    margin-left: calc(var(--host-sidebar-width) + var(--space-md));
   }
 
-  /* Sticky, not fixed, and deliberately NOT its own scroll container:
-     no overflow-y/max-height here. The sidebar stays pinned below the
-     sticky app header (--app-header-height, the shared variable the
-     header itself is sized from) within the normal document scroll, as
-     the (taller) settings panel scrolls past it - there is exactly one
-     scrollbar for the whole page, and the sidebar's own content is kept
-     compact enough (see its child rules) to fit real desktop/laptop
-     viewport heights without needing an internal scroll fallback.
-     min-height makes the panel's own surface visually reach the bottom
-     of the available viewport - reading as a structural column, not a
-     small floating card - while its content (flex default
-     justify-content: flex-start) stays naturally top-aligned rather
-     than stretched or centered into that space. Safe to rely on the
-     viewport as the scrolling ancestor here - .app-shell clips with
-     `overflow: clip`, which (unlike hidden/auto) never establishes a
-     scroll container, so it's transparent to sticky's ancestor lookup. */
+  /* A true fixed application sidebar (Figma/Notion/Slack-style): pinned
+     to the viewport, never moves at all while the dashboard scrolls
+     beside it - not "sticky until it catches up," stationary from the
+     moment the page loads. Deliberately NOT its own scroll container
+     (no overflow-y here): height is the exact space available below the
+     sticky header, and the sidebar's own content (see its child rules)
+     is kept comfortably within that.
+
+     `left` reproduces the same centering math .host-lobby/.host-dashboard
+     use (the lobby's own --space-md side padding, then centering
+     .host-dashboard's max-width within what's left) - position: fixed is
+     relative to the viewport, not to .host-dashboard's own (centered,
+     variable) position, so this has to be computed independently rather
+     than inherited from a parent. `100%`, not `100vw`: percentages on a
+     fixed element resolve against the viewport minus its scrollbar,
+     same as the flex layout being matched - `100vw` includes the
+     scrollbar and would drift a few pixels off on any page tall enough
+     to have one. */
   .host-dashboard-sidebar {
-    position: sticky;
-    top: calc(var(--app-header-height) + var(--space-sm));
-    align-self: start;
-    min-height: calc(100vh - var(--app-header-height) - (2 * var(--space-lg)));
-    min-height: calc(100dvh - var(--app-header-height) - (2 * var(--space-lg)));
+    position: fixed;
+    top: calc(var(--app-header-height) + var(--space-lg));
+    left: calc(var(--space-md) + max(0px, calc((100% - (2 * var(--space-md)) - var(--max-content-width)) / 2)));
+    width: var(--host-sidebar-width);
+    height: calc(100vh - var(--app-header-height) - (2 * var(--space-lg)));
+    height: calc(100dvh - var(--app-header-height) - (2 * var(--space-lg)));
+    z-index: 10;
   }
 }
 
+/* Three-region rhythm, not one uniform stack: Back to Invite (top,
+   fixed), the QR/Room Code/Live identity group (middle, floated toward
+   vertical centre), Open Stage (bottom, weighted toward the panel's
+   lower edge). `gap` sets the minimum distance between the three
+   regions - it never collapses to 0 even on short viewports - while
+   the identity group's own `margin-block: auto` (below) absorbs
+   whatever *extra* height the fixed sidebar has beyond that minimum,
+   growing symmetrically above and below it. That's what pushes Open
+   Stage down toward the bottom safe area on tall viewports without
+   ever using absolute positioning or a fixed offset that could
+   overflow a short one. Top/bottom padding is deliberately larger than
+   the horizontal inset: it's what keeps Back to Invite off the top
+   border and gives Open Stage genuine breathing room above the bottom
+   border, on every supported height. */
 .host-dashboard-sidebar {
+  --host-sidebar-width: 280px;
   /* If anything ever scrolls/focuses this into view (keyboard, an
      anchor), the sticky app header above it should never be the thing
      that ends up covering it. */
@@ -331,22 +356,59 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-xs);
+  gap: var(--space-lg);
   text-align: center;
-  padding: var(--space-sm);
+  padding: var(--space-lg) var(--space-md);
+}
+
+/* A wide-but-short viewport (a laptop window zoomed to 200%, a small
+   external display) can be too short for the fixed sidebar's full
+   padding/rhythm - "no internal scrollbar" is a harder requirement than
+   "generous spacing," so past this point the safe area and the gap
+   between the three regions both step down one tier (still existing
+   tokens, not arbitrary values) to guarantee everything still fits.
+   The QR/Room Code/Live gaps are untouched - they're already the
+   smallest tier and were never the problem. Placed after the base rule
+   above (same specificity - source order decides, so this has to come
+   later to actually win at these heights). */
+@media (min-width: 860px) and (max-height: 700px) {
+  .host-dashboard-sidebar {
+    gap: var(--space-md);
+    padding-block: var(--space-sm);
+  }
+}
+
+/* The QR/Room Code/Live Status trio reads as one unit, so its own
+   internal gaps stay smaller than the space separating it from Back to
+   Invite/Open Stage - but not uniform either: QR-to-Room-Code (medium)
+   is a bit more generous than Room-Code-to-Live (small), since Live is
+   the closer, more tightly-coupled companion to the Room Code right
+   above it. `margin-block: auto` centres the whole group in whatever
+   space is left over after the sidebar's own minimum `gap` is
+   satisfied (see the sidebar's own doc comment) - a flexbox centering
+   technique, not absolute positioning. */
+.host-dashboard-sidebar-identity {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-block: auto;
 }
 
 /* Slightly smaller than the Invite Lobby's QR (.invite-qr's default
    130px) - keeps this compact, permanent-info-only sidebar comfortably
-   short on common desktop/laptop heights with room to spare. */
+   scannable without dominating it. */
 .host-dashboard-sidebar .invite-qr {
   width: 100px;
+  max-width: 100%;
 }
 
-.host-dashboard-back {
-  align-self: flex-start;
-  padding: 0.4rem 0.9rem;
-  font-size: 0.9rem;
+.host-dashboard-sidebar-identity .host-lobby-code {
+  margin-top: var(--space-md);
+}
+
+.host-dashboard-sidebar-identity .host-sidebar-live {
+  margin-top: var(--space-sm);
 }
 
 /* Compact "● Live" badge - the dot is decorative reinforcement,
@@ -375,27 +437,33 @@
   gap: var(--space-sm);
 }
 
-/* One shared surface for every setting - see DashboardCard's doc
-   comment. Individual sections (.host-dashboard-section) are rows
-   within this panel, divided by a border, not separate floating cards -
-   so a future setting is just another row, no new card chrome.
-   Border radius is structural, not decorative: the panel (via the
-   shared .card class) owns the TOP corners because it's the true top of
-   the dashboard surface; its own bottom corners are explicitly squared
-   off here because the Start Game footer (the panel's own last child,
-   see .host-dashboard-start-bar) is the actual bottom of the surface
-   and owns that rounding instead - only one element should ever be
-   responsible for "this is where the dashboard ends." */
+/* The dashboard's one true outer shape - background, border, shadow
+   and (via the shared .card class, unmodified: no radius override
+   here) all four rounded corners. Everything else - the padded
+   content column below and the sticky footer after it - is a plain
+   child of this box with no visual identity of its own, so there's
+   only ever one surface, one shadow and one radius system for the
+   whole dashboard, header through Start Game, exactly like the header
+   of a document and its footer both being part of the same page, not
+   two overlapping ones. `padding: 0` cancels .card's own default
+   padding - the content column below owns the actual inset instead, so
+   the footer (a sibling of that column, not nested inside its padding)
+   can span this box's full content width with nothing to escape. */
 .host-dashboard-panel {
   display: flex;
   flex-direction: column;
-  /* Tighter than the shared .card default (--space-lg all round) - one
-     panel holding several rows doesn't need as much breathing room per
-     edge as a single small floating card does. No bottom padding: the
-     footer (this panel's last child) fills that role itself. */
+  padding: 0;
+}
+
+/* The padded, scrollable-with-the-page body of the dashboard - header
+   through Game Summary. Everything that used to be .host-dashboard-
+   panel's own padding lives here now; this is the part of the
+   dashboard that visually reads as "content," as opposed to the
+   footer below it, which reads as a persistent action bar. */
+.host-dashboard-content {
+  display: flex;
+  flex-direction: column;
   padding: var(--space-md) var(--space-lg) 0;
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
 }
 
 .host-dashboard-header {
@@ -501,10 +569,14 @@
   color: var(--color-teal);
 }
 
+/* A small, consistent indent - just enough to read as "belongs to the
+   Team name above it" without drifting off the section's own left
+   edge (the Team name itself stays flush with it, like every other
+   section heading). */
 .host-room-status-roster {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding-left: var(--space-xs);
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
@@ -548,16 +620,38 @@
   font-weight: 600;
 }
 
-/* The true bottom of the dashboard surface, not a separate floating
-   block: this is .host-dashboard-panel's own last child, immediately
-   after Game Summary with no extra margin of its own - only the
-   border-top divider (the same visual separation every other section
-   uses between its neighbour) marks where it begins. The negative
-   left/right margins cancel the panel's own horizontal padding so it
-   spans the panel's full width flush to its edges, and this is the
-   only place in the whole panel that owns bottom-rounded corners (see
-   .host-dashboard-panel's own doc comment) - the dashboard only reads
-   as "finished" here, at its actual end.
+/* The true bottom of the dashboard surface - a direct child of
+   .host-dashboard-panel (the shape owner, see its own doc comment),
+   a *sibling* of .host-dashboard-content rather than nested inside its
+   padding. That's what lets it span the panel's full content width
+   with no negative-margin bleed trick to fake it: as a plain flex
+   column child of a zero-padding parent, it already stretches to that
+   parent's content box on its own. `margin-inline: -1px` closes the
+   one remaining gap - the panel's own 1px border (see .card) sits
+   between that content box and the panel's true visual edge - so the
+   bar's corners land exactly on the panel's own outer edge rather than
+   1px short of it. No box-shadow of its own, and the only visible
+   separation from the content above it is the border-top divider - so
+   there's nothing about it that could read as "a separate card."
+
+   Background is deliberately the app header's own translucent surface
+   (the exact same declaration as .app-header in AppLayout.css - not a
+   new colour, copied rather than shared via a variable since the
+   navbar itself is out of scope for this change), not the dashboard
+   panel's own .card surface: the navbar and this footer are meant to
+   read as matching bookends of the page, distinct from the settings
+   content between them. Its own bottom-left/right radius still matches
+   the panel's (`--radius-lg`, top radius left at the default 0) so the
+   shape is correct regardless of the background choice above it.
+
+   overflow: clip on the panel was considered and rejected here: clip's
+   box is the *padding* edge, which - since the panel's own padding is
+   0 - sits exactly 1px inside its true border edge, i.e. precisely
+   where this bar's margin-inline correction pushes its own edge to. Add
+   clip and it re-trims the bar back to that inner edge, undoing the
+   fix and reintroducing the exact 1px seam it exists to close. Precise
+   geometry stands in for clipping here, not instead of a decision to
+   skip cleanup - it was evaluated and shown to actively conflict.
 
    Sticky, not fixed, and only within the normal document scroll (same
    reasoning as the sidebar): being the panel's last child bounds its
@@ -567,25 +661,34 @@
 .host-dashboard-start-bar {
   position: sticky;
   bottom: 0;
-  margin: 0 calc(-1 * var(--space-lg));
+  margin-inline: -1px;
   padding: 0.65rem var(--space-lg);
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-sm);
-  flex-wrap: wrap;
-  background: var(--color-bg-secondary);
+  justify-content: flex-end;
+  background: rgba(18, 14, 41, 0.45);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border-top: 1px solid var(--color-border);
   border-bottom-left-radius: var(--radius-lg);
   border-bottom-right-radius: var(--radius-lg);
 }
 
-.host-dashboard-start-readiness {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: 0.9rem;
+/* Same reasoning as .app-header's own fallback: browsers without
+   backdrop-filter support get a more opaque version of the same
+   colour instead of a washed-out, barely-there tint. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .host-dashboard-start-bar {
+    background: rgba(18, 14, 41, 0.88);
+  }
 }
 
-.host-dashboard-start-bar .host-style-note {
-  margin: 0;
+/* Below the sidebar's stacked-layout breakpoint, Start Game becomes
+   the full width of the bar rather than a right-aligned pill - a
+   clearer, easier-to-hit target once the dashboard is a single mobile
+   column instead of sitting beside the fixed room panel. */
+@media (max-width: 859px) {
+  .host-dashboard-start-bar .btn {
+    width: 100%;
+  }
 }

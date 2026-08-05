@@ -1094,16 +1094,18 @@ function GameSetupPhase({
           </p>
         )}
 
-        <div className="invite-qr">
-          <RoomQrCode joinUrl={joinUrl} size={110} />
+        <div className="host-dashboard-sidebar-identity">
+          <div className="invite-qr">
+            <RoomQrCode joinUrl={joinUrl} size={110} />
+          </div>
+          <p className="host-lobby-code">
+            Room Code: <strong>{roomCode}</strong>
+          </p>
+          <p className="host-sidebar-live" role="status">
+            <span className="host-sidebar-live-dot" aria-hidden="true" />
+            {connectionStatus === "connected" ? "Live" : describeStatus(connectionStatus)}
+          </p>
         </div>
-        <p className="host-lobby-code">
-          Room Code: <strong>{roomCode}</strong>
-        </p>
-        <p className="host-sidebar-live" role="status">
-          <span className="host-sidebar-live-dot" aria-hidden="true" />
-          {connectionStatus === "connected" ? "Live" : describeStatus(connectionStatus)}
-        </p>
 
         <a href={stageUrl} target="_blank" rel="noreferrer" className="btn btn-ghost">
           Open Stage
@@ -1112,100 +1114,116 @@ function GameSetupPhase({
 
       <div className="host-dashboard-main">
         <div className="host-dashboard-panel card">
-          <div className="host-dashboard-header">
-            <div>
-              <p className="host-dashboard-eyebrow">Host Dashboard</p>
-              <h2>Preparing Today&rsquo;s Game</h2>
+          <div className="host-dashboard-content">
+            <div className="host-dashboard-header">
+              <div>
+                <p className="host-dashboard-eyebrow">Host Dashboard</p>
+                <h2>Preparing Today&rsquo;s Game</h2>
+              </div>
+              {!isRematch && <SetupSaveStatusBadge status={setupStatus} onRetry={onRetrySetup} />}
             </div>
-            {!isRematch && <SetupSaveStatusBadge status={setupStatus} onRetry={onRetrySetup} />}
+
+            <RoomStatusSection
+              competitionStyle={competitionStyle}
+              joinedPlayers={joinedPlayers}
+              teams={teams}
+              teamPlayers={teamPlayers}
+            />
+
+            {isRematch ? (
+              <>
+                <RematchSummary plan={deckSnapshot} />
+                <p className="host-lobby-status">
+                  Competition: <strong>{competitionStyle === "team" ? "Teams" : "Solo"}</strong>
+                </p>
+                <p className="host-lobby-status">
+                  Host: <strong>{hostParticipation === "playing_host" ? "Playing" : "Dedicated Host"}</strong>
+                </p>
+              </>
+            ) : (
+              <>
+                <DashboardCard
+                  title="Competition"
+                  helperText="Choose whether players compete individually or in teams."
+                >
+                  <CompetitionStylePicker value={competitionStyle} onChange={onChangeStyle} />
+                  {styleError && (
+                    <p className="host-style-note" role="alert">
+                      {styleError}
+                    </p>
+                  )}
+                </DashboardCard>
+
+                <DashboardCard title="Decks" helperText="Select one or more decks to build your trivia game.">
+                  {availableDecks === null ? (
+                    <p className="host-lobby-status">Loading your Decks...</p>
+                  ) : (
+                    <SelectedDecksPanel
+                      availableDecks={availableDecks}
+                      selectedDeckIds={setupSelectedDeckIds}
+                      onChangeSelection={onChangeSelection}
+                      onOpenPicker={() => setPickerOpen(true)}
+                      planSummary={planSummary}
+                    />
+                  )}
+                </DashboardCard>
+
+                <DashboardCard title="Question Timer" helperText="Sets the time players have to answer each question.">
+                  <QuestionTimerSelect value={setupQuestionTimerSeconds} onChange={onChangeQuestionTimer} />
+                </DashboardCard>
+
+                <DashboardCard title="Question Flow" helperText={questionFlowHelperText}>
+                  <QuestionFlowPicker value={setupQuestionFlow} onChange={onChangeQuestionFlow} />
+                </DashboardCard>
+
+                <DashboardCard
+                  title="Host Participation"
+                  helperText="Choose whether the Host joins the game as a player or simply runs the trivia."
+                >
+                  <HostParticipationPicker value={hostParticipation} onChange={onSetHostParticipation} />
+                </DashboardCard>
+
+                <GameSummaryCard
+                  planSummary={planSummary}
+                  competitionStyle={competitionStyle}
+                  questionTimerSeconds={setupQuestionTimerSeconds}
+                  questionFlow={setupQuestionFlow}
+                  hostParticipation={hostParticipation}
+                />
+
+                <DeckPicker
+                  open={pickerOpen}
+                  decks={availableDecks}
+                  selectedDeckIds={setupSelectedDeckIds}
+                  onChangeSelection={onChangeSelection}
+                  onClose={() => setPickerOpen(false)}
+                />
+              </>
+            )}
+
+            {/* A genuine failed Start Game attempt (a real error from the
+                server, not a proactive validation state) - kept out of
+                the sticky footer itself, which is Start Game and nothing
+                else (see its own doc comment below), but still needs to
+                surface *somewhere*, or a failed click would go silently
+                unexplained. */}
+            {startError && (
+              <p className="host-style-note" role="alert">
+                {startError}
+              </p>
+            )}
           </div>
 
-          <RoomStatusSection
-            competitionStyle={competitionStyle}
-            joinedPlayers={joinedPlayers}
-            teams={teams}
-            teamPlayers={teamPlayers}
-          />
-
-          {isRematch ? (
-            <>
-              <RematchSummary plan={deckSnapshot} />
-              <p className="host-lobby-status">
-                Competition: <strong>{competitionStyle === "team" ? "Teams" : "Solo"}</strong>
-              </p>
-              <p className="host-lobby-status">
-                Host: <strong>{hostParticipation === "playing_host" ? "Playing" : "Dedicated Host"}</strong>
-              </p>
-            </>
-          ) : (
-            <>
-              <DashboardCard title="Competition" helperText="Choose whether players compete individually or in teams.">
-                <CompetitionStylePicker value={competitionStyle} onChange={onChangeStyle} />
-                {styleError && (
-                  <p className="host-style-note" role="alert">
-                    {styleError}
-                  </p>
-                )}
-              </DashboardCard>
-
-              <DashboardCard title="Decks" helperText="Select one or more decks to build your trivia game.">
-                {availableDecks === null ? (
-                  <p className="host-lobby-status">Loading your Decks...</p>
-                ) : (
-                  <SelectedDecksPanel
-                    availableDecks={availableDecks}
-                    selectedDeckIds={setupSelectedDeckIds}
-                    onChangeSelection={onChangeSelection}
-                    onOpenPicker={() => setPickerOpen(true)}
-                    planSummary={planSummary}
-                  />
-                )}
-              </DashboardCard>
-
-              <DashboardCard title="Question Timer" helperText="Sets the time players have to answer each question.">
-                <QuestionTimerSelect value={setupQuestionTimerSeconds} onChange={onChangeQuestionTimer} />
-              </DashboardCard>
-
-              <DashboardCard title="Question Flow" helperText={questionFlowHelperText}>
-                <QuestionFlowPicker value={setupQuestionFlow} onChange={onChangeQuestionFlow} />
-              </DashboardCard>
-
-              <DashboardCard
-                title="Host Participation"
-                helperText="Choose whether the Host joins the game as a player or simply runs the trivia."
-              >
-                <HostParticipationPicker value={hostParticipation} onChange={onSetHostParticipation} />
-              </DashboardCard>
-
-              <GameSummaryCard
-                planSummary={planSummary}
-                competitionStyle={competitionStyle}
-                questionTimerSeconds={setupQuestionTimerSeconds}
-                questionFlow={setupQuestionFlow}
-                hostParticipation={hostParticipation}
-              />
-
-              <DeckPicker
-                open={pickerOpen}
-                decks={availableDecks}
-                selectedDeckIds={setupSelectedDeckIds}
-                onChangeSelection={onChangeSelection}
-                onClose={() => setPickerOpen(false)}
-              />
-            </>
-          )}
-
-          {/* Last row of the same panel (not a separate floating card) -
-              its sticky range is bounded by the panel itself, so it can
-              never drift over content outside it or cover the Game
-              Summary rows above once they've scrolled into view. */}
+          {/* The dashboard's own last child, a sibling of
+              .host-dashboard-content (not nested inside its padding) -
+              see .host-dashboard-start-bar's own doc comment in the CSS
+              for why that's what lets it become the panel's true,
+              flush, rounded bottom edge instead of a card bolted onto a
+              square one. Its sticky range is still bounded by the
+              panel itself, so it can never drift over content outside
+              it or cover the Game Summary rows above once they've
+              scrolled into view. */}
           <div className="host-dashboard-start-bar">
-            <p
-              className={startBlockedReason || startError ? "host-style-note" : "host-dashboard-start-readiness"}
-              role={startBlockedReason || startError ? "alert" : undefined}
-            >
-              {startBlockedReason ?? startError ?? "✓ Ready to Start"}
-            </p>
             <button
               type="button"
               className="btn btn-primary"
