@@ -1,0 +1,394 @@
+/**
+ * The "Host Dashboard shell" - the two-column sidebar + settings-panel
+ * layout, shared verbatim by the Host Dashboard (HostControlPanelPage's
+ * GameSetupPhase) and the Player Lobby (PlayerRoomPage's PlayerLobbyPhase).
+ * Extracted here specifically so both pages import the exact same rules
+ * instead of two hand-copies that could quietly drift apart - the whole
+ * point of the Player Lobby redesign is that it reads as this same
+ * design system's sibling, not a similar-looking rebuild. Host-only
+ * pieces (the Back-to-Invite button, the editable settings controls
+ * like `.host-dashboard-select`/`.host-style-picker`) stay in
+ * HostControlPanelPage.css, since the Player page never renders them.
+ */
+
+/* The Invite Lobby's/Player roster's "+N more" indicator - the chip box
+   itself comes from `.host-room-status-roster li`'s own styling below;
+   this only adds the muted, italic treatment that marks it as a summary
+   rather than a real Player. */
+.host-roster-more {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.host-lobby-code {
+  font-size: 1.2rem;
+}
+
+.host-style-note {
+  color: var(--color-orange);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+/* Host Dashboard / Player Lobby shell. A persistent sidebar (permanent
+   identity info: for the Host, QR/code/Open Stage; for a Player, their
+   own connection/team status) beside one cohesive panel that owns all
+   *live* room state (Room Status / Players Joining) plus the Game
+   Summary, rather than splitting the same information across two
+   places. Single column below the sidebar's comfortable minimum width;
+   a true fixed sidebar (see the min-width breakpoint below) once
+   there's room for one. */
+.host-dashboard {
+  /* Defined here, not on .host-dashboard-sidebar itself: custom
+     properties inherit down the DOM tree, and .host-dashboard-main
+     (which also needs this value, to reserve the fixed sidebar's space)
+     is that element's *sibling*, not its descendant - only their shared
+     parent can hand the same value to both. */
+  --host-sidebar-width: 280px;
+  /* Mirrors .host-dashboard-sidebar's own `left` centering math (see
+     that rule's doc comment) - same shared tokens (--space-md,
+     --max-content-width), just solving for the panel's *right* edge
+     instead of the sidebar's left one, so .host-floating-action (below)
+     can align with the right panel's own edge instead of an arbitrary
+     value that only happens to work at one viewport. Consumed only by
+     `position: fixed` descendants, where `%` resolves against the
+     viewport - not by anything in normal flow. */
+  --host-panel-right-inset: calc(
+    var(--space-md) + max(0px, calc((100% - (2 * var(--space-md)) - var(--max-content-width)) / 2))
+  );
+  width: 100%;
+  max-width: 1100px;
+  display: block;
+  text-align: left;
+}
+
+@media (min-width: 860px) {
+  /* .host-dashboard-sidebar is `position: fixed` at this breakpoint (see
+     below), which removes it from layout entirely - .host-dashboard-main
+     reserves the equivalent space itself instead, via margin-left. */
+  .host-dashboard-main {
+    margin-left: calc(var(--host-sidebar-width) + var(--space-md));
+  }
+
+  /* A true fixed application sidebar (Figma/Notion/Slack-style): pinned
+     to the viewport, never moves at all while the dashboard scrolls
+     beside it - not "sticky until it catches up," stationary from the
+     moment the page loads. Deliberately NOT its own scroll container
+     (no overflow-y here): height is the exact space available below the
+     sticky header, and the sidebar's own content (see its child rules)
+     is kept comfortably within that.
+
+     `left` reproduces the same centering math .host-lobby/.player-room/
+     .host-dashboard use (the page's own --space-md side padding, then
+     centering .host-dashboard's max-width within what's left) -
+     position: fixed is relative to the viewport, not to .host-dashboard's
+     own (centered, variable) position, so this has to be computed
+     independently rather than inherited from a parent. `100%`, not
+     `100vw`: percentages on a fixed element resolve against the
+     viewport minus its scrollbar, same as the flex layout being
+     matched - `100vw` includes the scrollbar and would drift a few
+     pixels off on any page tall enough to have one. */
+  .host-dashboard-sidebar {
+    position: fixed;
+    top: calc(var(--app-header-height) + var(--space-lg));
+    left: calc(var(--space-md) + max(0px, calc((100% - (2 * var(--space-md)) - var(--max-content-width)) / 2)));
+    width: var(--host-sidebar-width);
+    height: calc(100vh - var(--app-header-height) - (2 * var(--space-lg)));
+    height: calc(100dvh - var(--app-header-height) - (2 * var(--space-lg)));
+    z-index: 10;
+  }
+}
+
+/* Three-region rhythm, not one uniform stack: an optional top item
+   (Host: Back to Invite; Player: none), the identity group (middle,
+   floated toward vertical centre), an optional bottom item (Host: Open
+   Stage; Player: none). `gap` sets the minimum distance between
+   regions - it never collapses to 0 even on short viewports - while
+   the identity group's own `margin-block: auto` (below) absorbs
+   whatever *extra* height the fixed sidebar has beyond that minimum,
+   growing symmetrically above and below it. Top/bottom padding is
+   deliberately larger than the horizontal inset: it's what keeps the
+   sidebar's content off the top/bottom borders, on every supported
+   height. */
+.host-dashboard-sidebar {
+  --host-sidebar-width: 280px;
+  /* If anything ever scrolls/focuses this into view (keyboard, an
+     anchor), the sticky app header above it should never be the thing
+     that ends up covering it. */
+  scroll-margin-top: var(--app-header-height);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-lg);
+  text-align: center;
+  padding: var(--space-lg) var(--space-md);
+}
+
+/* A wide-but-short viewport (a laptop window zoomed to 200%, a small
+   external display) can be too short for the fixed sidebar's full
+   padding/rhythm - "no internal scrollbar" is a harder requirement than
+   "generous spacing," so past this point the safe area and the gap
+   between regions both step down one tier (still existing tokens, not
+   arbitrary values) to guarantee everything still fits. Placed after
+   the base rule above (same specificity - source order decides, so
+   this has to come later to actually win at these heights). */
+@media (min-width: 860px) and (max-height: 700px) {
+  .host-dashboard-sidebar {
+    gap: var(--space-md);
+    padding-block: var(--space-sm);
+  }
+}
+
+/* The identity group (Host: QR/Room Code/Live; Player: avatar/name/
+   status facts) reads as one unit, so its own internal gaps (defined by
+   each page's own child rules) stay smaller than the space separating
+   it from whatever else is in the sidebar. `margin-block: auto` centres
+   the whole group in whatever space is left over after the sidebar's
+   own minimum `gap` is satisfied (see the sidebar's own doc comment) -
+   a flexbox centering technique, not absolute positioning. */
+.host-dashboard-sidebar-identity {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-block: auto;
+}
+
+/* Slightly smaller than the Invite Lobby's QR (.invite-qr's default
+   130px) - keeps this compact, permanent-info-only sidebar comfortably
+   scannable without dominating it. Only ever matches inside the Host's
+   own sidebar (Player's sidebar never renders a QR code). */
+.host-dashboard-sidebar .invite-qr {
+  width: 100px;
+  max-width: 100%;
+}
+
+.host-dashboard-sidebar-identity .host-lobby-code {
+  margin-top: var(--space-md);
+}
+
+.host-dashboard-sidebar-identity .host-sidebar-live {
+  margin-top: var(--space-sm);
+}
+
+/* Compact "● Live"/"● Connected" badge - the dot is decorative
+   reinforcement, never the only signal (the text next to it always
+   carries the actual state). */
+.host-sidebar-live {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.host-sidebar-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-teal);
+  flex-shrink: 0;
+}
+
+.host-dashboard-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+/* The dashboard's one true outer shape - background, border, shadow
+   and (via the shared .card class, unmodified: no radius override
+   here) all four rounded corners, all naturally owned by this element
+   alone. No footer surface competes for the panel's own bottom edge
+   (see .host-floating-action below) - the primary action button either
+   lives fully in-flow at the end of .host-dashboard-content (mobile) or
+   escapes flow entirely via `position: fixed` (desktop), so this panel
+   always ends exactly where its own content does, with its own
+   unmodified rounded corners. */
+.host-dashboard-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+/* The padded body of the dashboard - header through Game Summary,
+   plus the primary action button as its own last child on the Host
+   page (not a separate footer sibling). Bottom padding matches the
+   other three sides by default (mobile: the button, where present, is
+   a normal, full-width, in-flow child here); at the desktop breakpoint
+   it grows to reserve just enough room for a now-fixed floating button
+   so it never permanently covers the last row of real content - see
+   the `@media (min-width: 860px)` rule below. */
+.host-dashboard-content {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-md) var(--space-lg);
+}
+
+@media (min-width: 860px) {
+  /* Reserves exactly the floating button's own footprint (its ~50px
+     rendered height, comfortably covered by --space-lg) plus its
+     bottom clearance from the viewport (--space-lg again) plus a
+     small breathing gap (--space-md) above it - not an arbitrary
+     blank area, three existing spacing tokens sized to the actual
+     button below them. Harmless on a page with no floating action at
+     all (the Player Lobby has none - see PlayerRoomPage.tsx) since it
+     just reserves unused space at the bottom of the scroll area. */
+  .host-dashboard-content {
+    padding-bottom: calc(var(--space-lg) * 2 + var(--space-md));
+  }
+}
+
+/* The Continue/Start Game/Show Winner primary action - no footer
+   surface behind it (no background, no border, no rounded-corner
+   container): only the button's own existing gradient/shadow/radius
+   keep it visible against the page. Mobile-first: a plain, full-width
+   button at the natural end of .host-dashboard-content's own flow
+   below 860px (the one Host-workspace breakpoint) - the brief's own
+   explicit fallback for small screens, and it sidesteps every
+   fixed-position mobile pitfall (safe-area insets, on-screen-keyboard,
+   address-bar show/hide) by simply not fixing it there. At 860px and
+   up, `position: fixed` takes it out of flow and anchors it to the
+   right panel's own *content* inset (--host-panel-right-inset + this
+   panel's own --space-lg content padding) and a consistent --space-lg
+   from the viewport bottom - never the raw viewport-right edge, so it
+   can never drift toward a fixed left sidebar or touch the scrollbar.
+   z-index 10 matches the fixed sidebar's own layer. */
+.host-floating-action {
+  width: 100%;
+  margin-top: var(--space-sm);
+}
+
+@media (min-width: 860px) {
+  .host-floating-action {
+    position: fixed;
+    width: auto;
+    right: calc(var(--host-panel-right-inset) + var(--space-lg));
+    bottom: var(--space-lg);
+    z-index: 10;
+    margin-top: 0;
+  }
+}
+
+.host-dashboard-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  padding-bottom: var(--space-sm);
+  margin-bottom: var(--space-xs);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.host-dashboard-eyebrow {
+  margin: 0 0 0.15rem;
+  font-family: var(--font-heading);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-teal);
+}
+
+.host-dashboard-header h2 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.host-dashboard-section {
+  scroll-margin-top: var(--app-header-height);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-sm) 0;
+}
+
+.host-dashboard-section:not(:first-of-type) {
+  border-top: 1px solid var(--color-border);
+}
+
+.host-dashboard-section h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.host-dashboard-section-helper {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+/* Room Status (Host) / Players Joining (Player) - the one place live
+   room state lives; the sidebar next to it is permanent identity info
+   only. */
+.host-room-status-count {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.host-room-status-group {
+  margin-top: 0.5rem;
+}
+
+.host-room-status-group-name {
+  margin: 0 0 0.3rem;
+  font-family: var(--font-heading);
+  font-size: 0.85rem;
+  color: var(--color-teal);
+}
+
+/* A small, consistent indent - just enough to read as "belongs to the
+   Team name above it" without drifting off the section's own left
+   edge (the Team name itself stays flush with it, like every other
+   section heading). */
+.host-room-status-roster {
+  list-style: none;
+  margin: 0;
+  padding-left: var(--space-xs);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.host-room-status-roster li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  font-size: 0.85rem;
+}
+
+/* Key/value rows - a definition list, semantically matching what it
+   actually is, laid out as a two-column grid so every label and value
+   lines up cleanly regardless of label length. Used by the shared
+   GameSummaryCard component. */
+.host-dashboard-summary-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.host-dashboard-summary-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-sm);
+  font-size: 0.95rem;
+}
+
+.host-dashboard-summary-row dt {
+  color: var(--color-text-muted);
+}
+
+.host-dashboard-summary-row dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 600;
+}

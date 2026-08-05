@@ -14,18 +14,50 @@
   font-size: 0.9rem;
 }
 
-.player-room-warning {
-  color: var(--color-orange);
+/* The Player Lobby's own sidebar/section layout (PlayerLobbyPhase and
+   friends, in PlayerRoomPage.tsx) reuses the Host Dashboard shell
+   (../styles/hostDashboardShell.css) instead of the centred single-
+   column flow below - see this file's own doc comment there for why. */
+
+.player-info-facts {
+  width: 100%;
+  margin-top: var(--space-md);
+}
+
+/* `.host-sidebar-live-dot` (hostDashboardShell.css) is normally a flex
+   child of `.host-sidebar-live`; reused bare here as an inline dot in
+   front of the Status value so it lines up with the rest of the
+   sidebar's key/value rows instead of needing its own flex row. */
+.player-info-status-dot {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 0.4rem;
+}
+
+.player-waiting-status {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.player-waiting-status li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   font-size: 0.9rem;
 }
 
-.player-room-roster {
-  width: 100%;
-  max-width: 360px;
+.player-waiting-status li.is-done {
+  color: var(--color-teal);
 }
 
-.player-question,
-.player-reveal,
+.player-waiting-status li.is-pending {
+  color: var(--color-text-muted);
+}
+
 .player-leaderboard,
 .player-ended {
   width: 100%;
@@ -36,61 +68,131 @@
   gap: var(--space-sm);
 }
 
-.player-options {
+/* The Player's own Question/Reveal screen (PlayerLiveQuestionPhase) -
+   header + Question Card, reusing styles/liveGameShell.css for both
+   (see that file's own doc comment). Simpler than the Host's own
+   `.live-game` (no Player Monitor column, no floating action - a
+   Player has nothing to moderate), so this is its own class rather
+   than a variant of the Host's two-column grid. Fixed-height at every
+   width (not just >=860px, unlike the Host page) since this task's own
+   "never scrollable" requirement applies on mobile too, not only
+   desktop - achievable here specifically because this screen is
+   simpler (no monitor column competing for width/height). Mirrors
+   `.host-lobby`/`.player-room`'s own `2 * var(--space-lg)` top+bottom
+   padding in the height formula, same as `.live-game` does for
+   `.host-lobby`. */
+.player-live-game {
   width: 100%;
+  max-width: var(--max-content-width);
+  height: calc(100vh - var(--app-header-height) - (2 * var(--space-lg)));
+  height: calc(100dvh - var(--app-header-height) - (2 * var(--space-lg)));
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-}
-
-/* Large tap targets - this is held and tapped on a phone, often
-   one-handed and mid-conversation. */
-.player-option {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  width: 100%;
-  min-height: 56px;
-  padding: 0.9rem 1.1rem;
-  border-radius: var(--radius-md);
-  border: 2px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-size: 1.05rem;
+  gap: var(--space-sm);
   text-align: left;
-  cursor: pointer;
 }
 
-.player-option:focus-visible {
+/* The shared `.live-game-question` shape sizes itself via a CSS Grid
+   row's `1fr` track on the Host page; here, inside this page's own
+   flex column, `flex: 1` plays the same role. */
+.player-live-game .live-game-question {
+  flex: 1;
+}
+
+/* The interactive-element reset that turns the shared, otherwise
+   read-only `.live-game-answer-card` shape (see liveGameShell.css)
+   into a real, keyboard-and-mouse-usable `<button>` - only resets
+   what a `<button>` needs undone (UA border/background/font/cursor),
+   never touches the shape properties (padding/radius/min-height/gap)
+   themselves, so the two pages' cards stay pixel-identical. Hover is a
+   subtle lift, the same `transform`/timing `.btn:hover` already uses
+   elsewhere in the app - reused, not reinvented. Disabled (locked or
+   already revealed) suppresses that lift entirely, the "passive state"
+   the brief asks for once an answer is submitted or the round is over. */
+.player-answer-button {
+  appearance: none;
+  width: 100%;
+  font: inherit;
+  color: var(--color-text);
+  cursor: pointer;
+  text-align: left;
+  transition: transform var(--transition-fast), filter var(--transition-fast);
+}
+
+.player-answer-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  filter: brightness(1.08);
+}
+
+.player-answer-button:focus-visible {
   outline: 3px solid var(--color-electric-blue);
   outline-offset: 2px;
 }
 
-.player-option-selected {
+.player-answer-button:disabled {
+  cursor: default;
+}
+
+/* This Player-only selected state ("my current pick," not yet known
+   right/wrong) reuses the same teal the rest of the app already uses
+   for "positive/in-progress" (Host's own Answered rows, podium finish)
+   - `.is-correct` (liveGameShell.css, shared with the Host) is a
+   separate, Reveal-only state and the two never render on the same
+   card at the same time (see PlayerAnswerGrid). */
+.live-game-answer-card.is-selected {
   border-color: var(--color-teal);
   background: var(--color-surface-strong);
 }
 
-.player-option-letter {
-  display: inline-flex;
+/* The calm "you're done, waiting on the Host" line - deliberately no
+   spinner/animation (see the brief's own "no unnecessary animations"). */
+.player-submitted-note {
+  margin: 0;
+  display: flex;
   align-items: center;
-  justify-content: center;
-  min-width: 2rem;
-  height: 2rem;
-  border-radius: 50%;
-  border: 1px solid var(--color-border);
-  font-family: var(--font-heading);
-  font-weight: 700;
+  gap: 0.4rem;
   flex-shrink: 0;
+  color: var(--color-teal);
+  font-size: 0.9rem;
 }
 
-.player-team-select {
-  width: 100%;
-  max-width: 420px;
+/* The Reveal-phase result line. Same no-red-token rule as everywhere
+   else in this app: `.is-incorrect` reuses `--color-orange` ("needs
+   attention"), never a colour that doesn't exist in this palette. */
+.player-result {
+  margin: 0;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: var(--space-sm);
+  gap: 0.4rem;
+  flex-shrink: 0;
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+}
+
+.player-result.is-correct {
+  color: var(--color-teal);
+  font-weight: 600;
+}
+
+.player-result.is-incorrect {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+}
+
+.player-result.is-incorrect > p:first-child {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--color-orange);
+  font-weight: 600;
+}
+
+.player-result-detail {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-weight: 400;
 }
 
 .player-team-list {
@@ -143,10 +245,19 @@
   font-size: 1rem;
 }
 
+/* Centered within the Question Card's answers area, the same
+   `align-content: center`/`justify-content: center` treatment
+   `.live-game-answers`/`.host-typed-answer-key` (liveGameShell.css)
+   already use for Multiple Choice's grid and the Host's own Typed
+   Answer key, so both answer methods read as the same "answers area"
+   regardless of which one a Question uses. */
 .player-typed-answer {
   width: 100%;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   gap: var(--space-sm);
 }
 

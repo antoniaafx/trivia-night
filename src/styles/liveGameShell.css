@@ -1,0 +1,232 @@
+/**
+ * The "Live Game shell" - the in-question header (eyebrow/category/timer)
+ * and the Question Card's visual shape (prompt, answer grid, answer
+ * cards), shared verbatim by the Host's Live Game Control Center
+ * (HostControlPanelPage's LiveGamePhase) and the Player's own Question/
+ * Reveal screen (PlayerRoomPage's PlayerLiveQuestionPhase). Extracted
+ * here for the same reason as hostDashboardShell.css: so both pages
+ * import the exact same rules instead of two hand-copies that could
+ * drift apart. Layout containers that genuinely differ between the two
+ * pages (Host's two-column `.live-game` grid with its Player Monitor
+ * column vs the Player's own simpler single-column `.player-live-game`)
+ * stay page-specific, in each page's own stylesheet - only the pieces
+ * that are pixel-identical on both pages live here.
+ */
+
+.live-game-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.live-game-eyebrow {
+  margin: 0 0 0.15rem;
+  font-family: var(--font-heading);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-teal);
+}
+
+.live-game-category {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--color-text-muted);
+}
+
+/* The single most important thing on this screen while a Question is
+   live - large and bold enough to read at a glance, not competing for
+   attention with anything else in the header. `is-urgent` is a purely
+   visual accent (the countdown itself, still changing every second,
+   is what actually conveys "time is short" - colour never carries that
+   meaning alone). */
+.live-game-timer {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 2.75rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-game-timer.is-urgent {
+  color: var(--color-orange);
+}
+
+/* The Question Card's visual shape only - `grid-area: question` is a
+   no-op wherever there's no grid ancestor defining that name (the
+   Player's own `.player-live-game` is a flex column, not a grid), so
+   it's safe to leave here rather than split it out. Sizing (how this
+   card's *height* is actually determined - a grid row's `1fr` track on
+   the Host page, `flex: 1` on the Player page) is each page's own
+   concern, layered on top of this shared shape - see each page's own
+   CSS for that half. */
+.live-game-question {
+  grid-area: question;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-height: 0;
+  padding: var(--space-md) var(--space-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+}
+
+/* The question prompt - responsive via clamp() so a short prompt
+   stays large and a longer one (up to the Deck Bible's recommended
+   2-3 line maximum) scales down to keep the answers area below it
+   comfortably sized, rather than a fixed size that either wastes
+   space or forces the answers area to shrink unpredictably. Never
+   truncated/ellipsized - wraps naturally, however many lines that
+   takes. */
+.live-game-question-prompt {
+  flex-shrink: 0;
+  margin: 0;
+  font-size: clamp(1.15rem, 1rem + 1.1vw, 1.65rem);
+  line-height: 1.3;
+}
+
+/* Wraps whichever answer presentation is active (Multiple Choice's
+   grid, Typed Answer's input/answer-key) so all of them get the same
+   "fill the remaining card height" treatment via the shared
+   `flex: 1; min-height: 0`, instead of each needing special-cased
+   sizing. */
+.live-game-question-answers {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Fixed 2-column grid at the desktop breakpoint (A | B / C | D, per
+   the approved layout) rather than `auto-fit`, which would drift to
+   3+ columns on the Question Card's actual available width - see this
+   rule's own reasoning in TRIVIA_NIGHT_MEMORY.md. Rows stay
+   content-sized (not stretched to consume the answers area's full
+   available height) - stretching would make cards balloon on
+   tall/large viewports (a one-line answer in a 300px+ tall card), the
+   opposite of "cards should stay compact." Instead `align-content:
+   center` centers the naturally-sized 2x2 block within whatever room
+   is available, so extra height on a large screen becomes breathing
+   room around the grid rather than inflated cards. Below 860px,
+   `auto-fit` degrades fluidly (2 columns where the (typically
+   full-width, single-column) mobile layout leaves room, 1 column
+   otherwise) without a second, competing breakpoint. */
+.live-game-answers {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  align-content: center;
+  gap: var(--space-sm);
+}
+
+@media (min-width: 860px) {
+  .live-game-answers {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* `min-height` (not a stretched/forced height) is what makes all four
+   cards read as equal height for realistic Deck Bible content (answers
+   up to two lines) without ballooning past that on a large screen -
+   a one-line and a two-line option in the same reveal both reach this
+   floor, and genuinely long two-line content still just grows the
+   card that needs it. `align-items: center` keeps the letter badge/
+   "Correct" tag vertically centered against the card's own (now
+   compact, not stretched) height. On the Host page this is a
+   read-only `<div>`; on the Player page the identical class is
+   applied to a real `<button>` (see `.player-answer-button` in
+   PlayerRoomPage.css for the interactive-element reset that adds) -
+   the visual shape itself never differs between the two. */
+.live-game-answer-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 4.25rem;
+  padding: 0.75rem var(--space-md);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  font-size: clamp(0.9rem, 0.82rem + 0.35vw, 1.05rem);
+  line-height: 1.35;
+}
+
+/* Which option is correct - on the Host page this is visible before
+   Reveal Answer is pressed (Host-only foreknowledge); on the Player
+   page this class is only ever applied once `revealed` is true (see
+   PlayerAnswerGrid) - a Player must never see this before the Host
+   actually reveals. Only `border-color`/`background` change (same 1px
+   border width as the base rule) so this never alters the card's own
+   dimensions. */
+.live-game-answer-card.is-correct {
+  border-color: var(--color-teal);
+  background: rgba(45, 212, 191, 0.14);
+}
+
+.live-game-answer-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--color-surface-strong, var(--color-surface));
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.live-game-answer-card.is-correct .live-game-answer-letter {
+  background: var(--color-teal);
+  color: var(--color-text-inverse);
+}
+
+/* Safe two-line wrapping for a long option - never overflows or clips
+   its card, and never forces the card wider than its grid column. */
+.live-game-answer-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.live-game-answer-correct-tag {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-teal);
+}
+
+/* Typed Answer's answer-key box: on the Host page it shows the
+   correct answer from the moment the Question starts (Host-only
+   foreknowledge, see LiveGamePhase); on the Player page the identical
+   class only ever appears post-Reveal, showing the now-safe-to-reveal
+   correct answer in place of the input form (see PlayerTypedAnswer).
+   Plays the same "fills the answers area" role the Multiple Choice
+   grid plays above - centered within whatever height is available
+   rather than pinned to the top with dead space below it. */
+.host-typed-answer-key {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: left;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}

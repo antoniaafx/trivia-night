@@ -5,16 +5,24 @@ import { useRoomChannel } from "../hooks/useRoomChannel";
 import { useGameRoom } from "../hooks/useGameRoom";
 import { useCountdown } from "../hooks/useCountdown";
 import { getQuestionById, type Question, type TypedAnswerQuestion } from "../data/questions";
-import { findSectionForQuestion, type QuestionFlow } from "../utils/gamePlan";
+import {
+  findSectionForQuestion,
+  type HostParticipation,
+  type PlannedGamePlanSummary,
+  type QuestionFlow,
+  type RoomDeckSnapshot,
+} from "../utils/gamePlan";
 import { formatCountdown } from "../utils/timer";
 import { computeWinners, validateTeamName } from "../utils/scoring";
-import PlayerList from "../components/PlayerList";
+import { avatarForClientId } from "../utils/avatars";
 import LoadingScreen from "../components/LoadingScreen";
 import CompetitorLeaderboard from "../components/CompetitorLeaderboard";
-import GameSetupSummary from "../components/GameSetupSummary";
+import GameSummaryCard from "../components/GameSummaryCard";
 import type { RoomPlayer } from "../types/room";
-import type { CompetitionStyle, Competitor, GradingStatus, TeamRecord, TimerStatus } from "../types/game";
+import type { CompetitionStyle, Competitor, GradingStatus, PlayerRecord, TeamRecord } from "../types/game";
 import { playerToCompetitor, teamToCompetitor } from "../types/game";
+import "../styles/hostDashboardShell.css";
+import "../styles/liveGameShell.css";
 import "./PlayerRoomPage.css";
 
 const DISPLAY_NAME_KEY = "trivia-night:display-name";
@@ -88,7 +96,6 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
   } = useGameRoom({ roomCode, self });
 
   const hostPresent = presencePlayers.some((player) => player.isHost);
-  const otherPlayers = presencePlayers.filter((player) => player.clientId !== self.clientId);
 
   // A late join means never having been present for *this* game
   // instance's lobby - not merely loading the page while some phase
@@ -191,6 +198,8 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
   const question = getQuestionById(questionList, room.currentQuestionId);
   const sectionInfo =
     room.deckSnapshot?.kind === "game_plan" ? findSectionForQuestion(room.deckSnapshot, room.currentQuestionId) : null;
+  const questionNumber = questionList.findIndex((q) => q.id === room.currentQuestionId) + 1;
+  const totalQuestions = questionList.length;
   const isTeamMode = room.competitionStyle === "team";
   const scorablePlayers = players.filter((player) => !player.isHost);
   const competitors: Competitor[] = isTeamMode
@@ -200,122 +209,67 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
   const unitLabel = isTeamMode ? "team" : "you";
   const hasTeam = !isTeamMode || myTeamId !== null;
   const questionTimerSeconds = room.deckSnapshot?.questionTimerSeconds ?? null;
-  const questionFlow = room.deckSnapshot?.questionFlow ?? "host_controlled";
   const answersLocked = room.timerStatus === "expired";
 
   return (
     <div className="player-room">
-      <p className="player-room-status" role="status">
-        {connectionStatus === "connected" ? `You're in! Room ${roomCode}` : describeStatus(connectionStatus)}
-      </p>
-
-      {room.phase === "lobby" && lobbyStage === "invite" && (
-        <>
-          <h1>Waiting for the host...</h1>
-          {connectionStatus === "connected" && !hostPresent && (
-            <p className="player-room-warning">We haven&rsquo;t seen the host yet - double check the room code.</p>
-          )}
-          <div className="player-room-roster">
-            <h2>Also here</h2>
-            <PlayerList players={otherPlayers} emptyMessage="You're the first one here!" />
-          </div>
-        </>
-      )}
-
-      {room.phase === "lobby" &&
-        lobbyStage !== "invite" &&
-        (isTeamMode ? (
-          <>
-            {connectionStatus === "connected" && !hostPresent && (
-              <p className="player-room-warning">
-                We haven&rsquo;t seen the host yet - double check the room code.
-              </p>
-            )}
-            {styleChangeNotice && (
-              <p className="player-room-status" role="status">
-                {styleChangeNotice}
-              </p>
-            )}
-            <GameSetupSummary deckSnapshot={room.deckSnapshot} competitionStyle={room.competitionStyle} />
-            <TeamSelector
-              teams={teams}
-              myTeamId={myTeamId}
-              onJoin={joinTeam}
-              onLeave={leaveTeam}
-              onCreate={createTeam}
-            />
-          </>
-        ) : (
-          <>
-            <h1>Waiting for the host to start...</h1>
-            {connectionStatus === "connected" && !hostPresent && (
-              <p className="player-room-warning">
-                We haven&rsquo;t seen the host yet - double check the room code.
-              </p>
-            )}
-            {styleChangeNotice && (
-              <p className="player-room-status" role="status">
-                {styleChangeNotice}
-              </p>
-            )}
-            <GameSetupSummary deckSnapshot={room.deckSnapshot} competitionStyle={room.competitionStyle} />
-            <div className="player-room-roster">
-              <h2>Also here</h2>
-              <PlayerList players={otherPlayers} emptyMessage="You're the first one here!" />
-            </div>
-          </>
-        ))}
-
-      {room.phase === "question" && question && (
-        <QuestionTimerBanner
-          questionTimerSeconds={questionTimerSeconds}
-          questionFlow={questionFlow}
-          timerStatus={room.timerStatus}
-          remainingSeconds={remainingSeconds}
-        />
-      )}
-
-      {room.phase === "question" &&
-        question &&
-        (question.answerMethod === "multiple_choice" ? (
-          <QuestionAnswering
-            question={question}
-            sectionInfo={sectionInfo}
-            isTeamMode={isTeamMode}
-            hasTeam={hasTeam}
-            locked={answersLocked}
-            selectedOptionId={isTeamMode ? myTeamAnswerOptionId : myAnswerOptionId}
-            onSelect={(optionId) => void (isTeamMode ? submitTeamAnswer(optionId) : submitAnswer(optionId))}
-          />
-        ) : (
-          <TypedAnswerQuestionPhase
-            question={question}
-            sectionInfo={sectionInfo}
-            isTeamMode={isTeamMode}
-            hasTeam={hasTeam}
-            locked={answersLocked}
-            submittedText={isTeamMode ? myTeamTypedAnswerText : myTypedAnswerText}
-            onSubmit={(text) => (isTeamMode ? submitTeamTypedAnswer(text) : submitTypedAnswer(text))}
-          />
-        ))}
-
-      {room.phase === "question" && !question && (
+      {/* Lobby folds this same connection status into its own sidebar
+          (see PlayerInfoPanel's "Status" row); Question/Reveal drop it
+          entirely - once the game has actually begun, a Player already
+          knows they're connected, and the room code/"You're in!" copy
+          is exactly the kind of lobby-era information this screen's
+          own redesign brief asks to remove (see PlayerLiveQuestionPhase's
+          own doc comment). Only Leaderboard/Ended (unchanged by either
+          redesign) still show it. */}
+      {(room.phase === "leaderboard" || room.phase === "ended") && (
         <p className="player-room-status" role="status">
-          Catching up with the current Question…
+          {connectionStatus === "connected" ? `You're in! Room ${roomCode}` : describeStatus(connectionStatus)}
         </p>
       )}
 
-      {room.phase === "reveal" && question && (
-        <RevealResult
+      {room.phase === "lobby" && (
+        <PlayerLobbyPhase
+          roomCode={roomCode}
+          self={self}
+          connectionStatus={connectionStatus}
+          hostPresent={hostPresent}
+          presencePlayers={presencePlayers}
+          scorablePlayers={scorablePlayers}
+          teams={teams}
+          myTeamId={myTeamId}
+          competitionStyle={room.competitionStyle}
+          deckSnapshot={room.deckSnapshot}
+          showTeamSelector={lobbyStage !== "invite"}
+          styleChangeNotice={styleChangeNotice}
+          onCreateTeam={createTeam}
+          onJoinTeam={joinTeam}
+          onLeaveTeam={leaveTeam}
+        />
+      )}
+
+      {(room.phase === "question" || room.phase === "reveal") && question && (
+        <PlayerLiveQuestionPhase
           question={question}
+          sectionInfo={sectionInfo}
+          questionNumber={questionNumber}
+          totalQuestions={totalQuestions}
+          revealed={room.phase === "reveal"}
+          questionTimerSeconds={questionTimerSeconds}
+          remainingSeconds={remainingSeconds}
           isTeamMode={isTeamMode}
+          hasTeam={hasTeam}
+          locked={answersLocked}
+          selectedOptionId={isTeamMode ? myTeamAnswerOptionId : myAnswerOptionId}
+          onSelectOption={(optionId) => void (isTeamMode ? submitTeamAnswer(optionId) : submitAnswer(optionId))}
+          typedSubmittedText={isTeamMode ? myTeamTypedAnswerText : myTypedAnswerText}
+          onSubmitTyped={(text) => (isTeamMode ? submitTeamTypedAnswer(text) : submitTypedAnswer(text))}
           gradingStatus={isTeamMode ? myTeamGradingStatus : myGradingStatus}
         />
       )}
 
-      {room.phase === "reveal" && !question && (
+      {(room.phase === "question" || room.phase === "reveal") && !question && (
         <p className="player-room-status" role="status">
-          Catching up with the reveal…
+          Catching up…
         </p>
       )}
 
@@ -341,7 +295,350 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
   );
 }
 
-function TeamSelector({
+/**
+ * The Player Lobby - the Player-side equivalent of the Host Dashboard
+ * (HostControlPanelPage's GameSetupPhase), sharing its exact shell
+ * (`.host-dashboard`/`.host-dashboard-sidebar`/`.host-dashboard-panel`/
+ * `.host-dashboard-content`/`.host-dashboard-section`, all now defined
+ * once in styles/hostDashboardShell.css - see that file's own doc
+ * comment) so a Player switching screens from the Host recognizes the
+ * same design system, not a similar-looking rebuild. Renders identically
+ * whether the Host is still on the Invite stage or has moved on to
+ * Setup - a Player has no equivalent distinction to make (they're
+ * waiting either way), so unlike the Host's own two separate screens
+ * this is deliberately ONE screen for the whole Lobby phase. The one
+ * thing that *does* change between those two stages is whether Team
+ * Selection is offered yet (`showTeamSelector`), matching the Host's
+ * own existing gate (`lobbyStage !== "invite"`) rather than a new one.
+ */
+function PlayerLobbyPhase({
+  roomCode,
+  self,
+  connectionStatus,
+  hostPresent,
+  presencePlayers,
+  scorablePlayers,
+  teams,
+  myTeamId,
+  competitionStyle,
+  deckSnapshot,
+  showTeamSelector,
+  styleChangeNotice,
+  onCreateTeam,
+  onJoinTeam,
+  onLeaveTeam,
+}: {
+  roomCode: string;
+  self: RoomPlayer;
+  connectionStatus: string;
+  hostPresent: boolean;
+  presencePlayers: RoomPlayer[];
+  scorablePlayers: PlayerRecord[];
+  teams: TeamRecord[];
+  myTeamId: string | null;
+  competitionStyle: CompetitionStyle;
+  deckSnapshot: RoomDeckSnapshot | null;
+  showTeamSelector: boolean;
+  styleChangeNotice: string | null;
+  onCreateTeam: (name: string) => Promise<TeamRecord>;
+  onJoinTeam: (teamId: string) => Promise<void>;
+  onLeaveTeam: () => Promise<void>;
+}) {
+  const myTeam = teams.find((team) => team.id === myTeamId) ?? null;
+  const summary = summarizeDeckSnapshotForPlayer(deckSnapshot);
+
+  return (
+    <div className="host-dashboard">
+      <PlayerInfoPanel
+        self={self}
+        connectionStatus={connectionStatus}
+        competitionStyle={competitionStyle}
+        myTeam={myTeam}
+        roomCode={roomCode}
+      />
+
+      <div className="host-dashboard-main">
+        <div className="host-dashboard-panel card">
+          <div className="host-dashboard-content">
+            <div className="host-dashboard-header">
+              <div>
+                <p className="host-dashboard-eyebrow">Player Lobby</p>
+                <h2>Waiting for Host</h2>
+              </div>
+            </div>
+
+            {connectionStatus === "connected" && !hostPresent && (
+              <p className="host-style-note" role="alert">
+                We haven&rsquo;t seen the host yet — double check the room code.
+              </p>
+            )}
+            {styleChangeNotice && (
+              <p className="player-room-status" role="status">
+                {styleChangeNotice}
+              </p>
+            )}
+
+            <PlayerWaitingStatusSection connectionStatus={connectionStatus} />
+
+            <PlayerRosterSection
+              competitionStyle={competitionStyle}
+              presencePlayers={presencePlayers}
+              scorablePlayers={scorablePlayers}
+              teams={teams}
+              selfClientId={self.clientId}
+            />
+
+            {competitionStyle === "team" && showTeamSelector && (
+              <TeamSelectorSection teams={teams} myTeamId={myTeamId} onJoin={onJoinTeam} onLeave={onLeaveTeam} onCreate={onCreateTeam} />
+            )}
+
+            {summary && (
+              <GameSummaryCard
+                planSummary={summary.planSummary}
+                competitionStyle={competitionStyle}
+                questionTimerSeconds={summary.questionTimerSeconds}
+                questionFlow={summary.questionFlow}
+                hostParticipation={summary.hostParticipation}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface PlayerGameSummary {
+  planSummary: PlannedGamePlanSummary;
+  hostParticipation: HostParticipation;
+  questionTimerSeconds: number | null;
+  questionFlow: QuestionFlow;
+}
+
+/**
+ * Normalizes either shape of RoomDeckSnapshot into what the shared
+ * GameSummaryCard needs. A `game_plan` snapshot during the lobby phase
+ * only ever means a Play-Again rematch (see deriveLobbyStage's own doc
+ * comment) - its `sections`/`questions` already have everything
+ * GameSummaryCard needs, just under different field names than
+ * `planned_game`'s pre-computed `planSummary`. Deliberately local to
+ * this page rather than added to gamePlan.ts: the Host's own rematch
+ * view (RematchSummary) is untouched and out of scope here, this only
+ * gives the Player Lobby - which has no separate rematch view of its
+ * own - one consistent Game Summary either way.
+ */
+function summarizeDeckSnapshotForPlayer(deckSnapshot: RoomDeckSnapshot | null): PlayerGameSummary | null {
+  if (!deckSnapshot) return null;
+
+  if (deckSnapshot.kind === "planned_game") {
+    return {
+      planSummary: deckSnapshot.planSummary,
+      hostParticipation: deckSnapshot.hostParticipation,
+      questionTimerSeconds: deckSnapshot.questionTimerSeconds,
+      questionFlow: deckSnapshot.questionFlow,
+    };
+  }
+
+  return {
+    planSummary: {
+      deckCount: deckSnapshot.sections.length,
+      questionCount: deckSnapshot.questions.length,
+      sections: deckSnapshot.sections.map((section) => ({
+        deckId: section.deckId,
+        deckTitle: section.deckTitle,
+        selectedQuestionCount: section.questionIds.length,
+      })),
+    },
+    hostParticipation: deckSnapshot.hostParticipation,
+    questionTimerSeconds: deckSnapshot.questionTimerSeconds,
+    questionFlow: deckSnapshot.questionFlow,
+  };
+}
+
+/**
+ * The Player's "anchor" - the Host QR panel's equivalent, but showing
+ * only facts about the current Player instead of ways to invite more of
+ * them (see the same `.host-dashboard-sidebar` shell's doc comment in
+ * hostDashboardShell.css). Reuses the Host sidebar's own identity-block
+ * shape (an eyebrow, a prominent name line, then a key/value fact list)
+ * rather than inventing a new layout for it.
+ */
+function PlayerInfoPanel({
+  self,
+  connectionStatus,
+  competitionStyle,
+  myTeam,
+  roomCode,
+}: {
+  self: RoomPlayer;
+  connectionStatus: string;
+  competitionStyle: CompetitionStyle;
+  myTeam: TeamRecord | null;
+  roomCode: string;
+}) {
+  return (
+    <aside className="host-dashboard-sidebar card">
+      <div className="host-dashboard-sidebar-identity">
+        <p className="host-dashboard-eyebrow">You</p>
+        <p className="host-lobby-code">
+          <span aria-hidden="true">{avatarForClientId(self.clientId)}</span> {self.displayName}
+        </p>
+        <dl className="host-dashboard-summary-list player-info-facts">
+          <div className="host-dashboard-summary-row">
+            <dt>Status</dt>
+            <dd>
+              <span className="host-sidebar-live-dot player-info-status-dot" aria-hidden="true" />
+              {connectionStatus === "connected" ? "Connected" : describeStatus(connectionStatus)}
+            </dd>
+          </div>
+          <div className="host-dashboard-summary-row">
+            <dt>Competition</dt>
+            <dd>{competitionStyle === "team" ? "Teams" : "Solo"}</dd>
+          </div>
+          {competitionStyle === "team" && (
+            <div className="host-dashboard-summary-row">
+              <dt>Team</dt>
+              <dd>{myTeam ? myTeam.name : "Not chosen yet"}</dd>
+            </div>
+          )}
+          <div className="host-dashboard-summary-row">
+            <dt>Room</dt>
+            <dd>{roomCode}</dd>
+          </div>
+        </dl>
+      </div>
+    </aside>
+  );
+}
+
+/**
+ * "What happens next?" as a compact checklist instead of a paragraph -
+ * see the redesign brief's own "Waiting Status" example. `Game Loaded`
+ * is always done the moment this renders (the page's own loading guard,
+ * above, already gated on `room` existing); `Waiting for Host` is
+ * always pending here since this section only renders during the lobby
+ * phase - neither needs its own prop, only `Connected` genuinely varies.
+ */
+function PlayerWaitingStatusSection({ connectionStatus }: { connectionStatus: string }) {
+  const connected = connectionStatus === "connected";
+  return (
+    <section className="host-dashboard-section">
+      <h3>Waiting Status</h3>
+      <ul className="player-waiting-status">
+        <li className={connected ? "is-done" : "is-pending"}>
+          <span aria-hidden="true">{connected ? "✓" : "⏳"}</span>
+          {connected ? "Connected" : describeStatus(connectionStatus)}
+        </li>
+        <li className="is-done">
+          <span aria-hidden="true">✓</span>Game Loaded
+        </li>
+        <li className="is-pending">
+          <span aria-hidden="true">⏳</span>Waiting for Host
+        </li>
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * "Who is in the room?" - Solo Mode reads straight off Presence (the
+ * same "who's online right now" data the Host's own Invite Lobby uses),
+ * so a join/leave shows up the instant it happens and the Host can
+ * appear in the list (Presence is the only source that has a row for
+ * the Host at all - see PlayerRecord's own doc comment: the Host never
+ * gets a durable roster row). Team Mode instead groups the durable,
+ * DB-backed `scorablePlayers` by `teamId`, the same shape and the same
+ * "Waiting for Team" fallback group as the Host's own Room Status
+ * section, since team assignment only exists in that durable data, not
+ * in Presence. Never leaves the list looking empty/dead if no one else
+ * has joined yet - see the trailing helper line.
+ */
+function PlayerRosterSection({
+  competitionStyle,
+  presencePlayers,
+  scorablePlayers,
+  teams,
+  selfClientId,
+}: {
+  competitionStyle: CompetitionStyle;
+  presencePlayers: RoomPlayer[];
+  scorablePlayers: PlayerRecord[];
+  teams: TeamRecord[];
+  selfClientId: string;
+}) {
+  const realPlayers = presencePlayers.filter((player) => !player.isHost);
+  const nameFor = (clientId: string, displayName: string) =>
+    clientId === selfClientId ? `${displayName} (You)` : displayName;
+  const unassigned = scorablePlayers.filter((player) => !player.teamId);
+
+  return (
+    <section className="host-dashboard-section">
+      <h3>Players Joining</h3>
+      <p className="host-room-status-count" role="status">
+        {realPlayers.length} Player{realPlayers.length === 1 ? "" : "s"} Connected
+      </p>
+
+      {competitionStyle === "team" ? (
+        <>
+          <p className="host-room-status-count">
+            {teams.length} Team{teams.length === 1 ? "" : "s"} Formed
+          </p>
+          {teams.map((team) => (
+            <div className="host-room-status-group" key={team.id}>
+              <p className="host-room-status-group-name">{team.name}</p>
+              <ul className="host-room-status-roster">
+                {scorablePlayers
+                  .filter((player) => player.teamId === team.id)
+                  .map((player) => (
+                    <li key={player.clientId}>
+                      <span aria-hidden="true">{avatarForClientId(player.clientId)}</span>{" "}
+                      {nameFor(player.clientId, player.displayName)}
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          ))}
+          {unassigned.length > 0 && (
+            <div className="host-room-status-group">
+              <p className="host-room-status-group-name">Waiting for Team</p>
+              <ul className="host-room-status-roster">
+                {unassigned.map((player) => (
+                  <li key={player.clientId}>
+                    <span aria-hidden="true">{avatarForClientId(player.clientId)}</span>{" "}
+                    {nameFor(player.clientId, player.displayName)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      ) : (
+        <ul className="host-room-status-roster">
+          {presencePlayers.map((player) => (
+            <li key={player.clientId}>
+              <span aria-hidden="true">{avatarForClientId(player.clientId)}</span>{" "}
+              {nameFor(player.clientId, player.displayName)}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {realPlayers.length <= 1 && (
+        <p className="host-dashboard-section-helper" role="status">
+          Waiting for more players…
+        </p>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Team Selection, restyled to live inside a `.host-dashboard-section`
+ * like every other part of this page instead of its own centred,
+ * standalone screen - the join/leave/create logic, validation, and
+ * error handling below are unchanged from before this redesign.
+ */
+function TeamSelectorSection({
   teams,
   myTeamId,
   onJoin,
@@ -405,11 +702,13 @@ function TeamSelector({
   if (myTeam) {
     const otherTeams = teams.filter((team) => team.id !== myTeam.id);
     return (
-      <div className="player-team-select">
-        <h1>You&rsquo;re on {myTeam.name}</h1>
-        <p className="player-room-status">You can switch teams until the host starts the game.</p>
+      <section className="host-dashboard-section">
+        <h3>Your Team</h3>
+        <p className="host-dashboard-section-helper">
+          You&rsquo;re on <strong>{myTeam.name}</strong>. You can switch teams until the host starts the game.
+        </p>
         {error && (
-          <p className="player-room-warning" role="alert">
+          <p className="host-style-note" role="alert">
             {error}
           </p>
         )}
@@ -418,7 +717,7 @@ function TeamSelector({
         </button>
         {otherTeams.length > 0 && (
           <div className="player-team-list">
-            <h2>Switch to another team</h2>
+            <p className="host-dashboard-section-helper">Switch to another team</p>
             <ul>
               {otherTeams.map((team) => (
                 <li key={team.id}>
@@ -435,19 +734,19 @@ function TeamSelector({
             </ul>
           </div>
         )}
-      </div>
+      </section>
     );
   }
 
   return (
-    <div className="player-team-select">
-      <h1>Choose a team</h1>
+    <section className="host-dashboard-section">
+      <h3>Choose a Team</h3>
       {error && (
-        <p className="player-room-warning" role="alert">
+        <p className="host-style-note" role="alert">
           {error}
         </p>
       )}
-      {teams.length === 0 && <p className="player-room-status">No teams yet — be the first to start one!</p>}
+      {teams.length === 0 && <p className="host-dashboard-section-helper">No teams yet — be the first to start one!</p>}
       {teams.length > 0 && (
         <div className="player-team-list">
           <ul>
@@ -480,7 +779,7 @@ function TeamSelector({
           Create team
         </button>
       </form>
-    </div>
+    </section>
   );
 }
 
@@ -490,77 +789,145 @@ interface PlayerSectionInfo {
   totalSections: number;
 }
 
-function SectionEyebrow({ sectionInfo }: { sectionInfo: PlayerSectionInfo | null }) {
-  if (!sectionInfo) return null;
+/**
+ * The Player's own Question/Reveal screen - the read-only counterpart
+ * to the Host's Live Game Control Center (HostControlPanelPage's
+ * LiveGamePhase), sharing its header and Question Card verbatim (see
+ * styles/liveGameShell.css's own doc comment) so a Player recognizes
+ * the same design system the Host uses, not a similar-looking rebuild.
+ * Unlike the Host's version this has no Player Monitor column and no
+ * primary action of any kind - the Player has exactly one task
+ * (answer the current Question), and moderation (Reveal Answer, timer
+ * control, ...) is exclusively the Host's. `revealed` is the same
+ * "two states, one component" pattern already used by `LiveGamePhase`
+ * and `HostLeaderboardPhase`: every wrapping element (header, Question
+ * Card) renders unconditionally at the same position in both states,
+ * so pressing Reveal Answer reads as this screen continuing, not
+ * navigating - only the answer area's own content and the trailing
+ * status line change.
+ */
+function PlayerLiveQuestionPhase({
+  question,
+  sectionInfo,
+  questionNumber,
+  totalQuestions,
+  revealed,
+  questionTimerSeconds,
+  remainingSeconds,
+  isTeamMode,
+  hasTeam,
+  locked,
+  selectedOptionId,
+  onSelectOption,
+  typedSubmittedText,
+  onSubmitTyped,
+  gradingStatus,
+}: {
+  question: Question;
+  sectionInfo: PlayerSectionInfo | null;
+  questionNumber: number;
+  totalQuestions: number;
+  revealed: boolean;
+  questionTimerSeconds: number | null;
+  remainingSeconds: number | null;
+  isTeamMode: boolean;
+  hasTeam: boolean;
+  locked: boolean;
+  selectedOptionId: string | null;
+  onSelectOption: (optionId: string) => void;
+  typedSubmittedText: string | null;
+  onSubmitTyped: (text: string) => Promise<void>;
+  gradingStatus: GradingStatus | null;
+}) {
+  const hasTimer = questionTimerSeconds !== null;
+  const categoryLabel = sectionInfo
+    ? `${sectionInfo.section.deckTitle} · Deck ${sectionInfo.sectionNumber} of ${sectionInfo.totalSections}`
+    : "Quick Play";
+  const submitted = selectedOptionId !== null || typedSubmittedText !== null;
+
   return (
-    <p className="player-room-status">
-      {sectionInfo.section.deckTitle} — Deck {sectionInfo.sectionNumber} of {sectionInfo.totalSections}
-    </p>
+    <div className="player-live-game">
+      <header className="live-game-header">
+        <div>
+          <p className="live-game-eyebrow">
+            Question {questionNumber} of {totalQuestions}
+          </p>
+          <p className="live-game-category">{categoryLabel}</p>
+        </div>
+        {hasTimer && remainingSeconds !== null && (
+          <p className={`live-game-timer${remainingSeconds <= 10 ? " is-urgent" : ""}`} role="status">
+            <span aria-hidden="true">⏱</span>
+            {formatCountdown(remainingSeconds)}
+          </p>
+        )}
+      </header>
+
+      <section className="live-game-question" aria-label="Question">
+        <h2 className="live-game-question-prompt">{question.prompt}</h2>
+
+        <div className="live-game-question-answers">
+          {isTeamMode && !hasTeam ? (
+            <p className="host-style-note" role="alert">
+              You didn&rsquo;t join a team before the game started.
+            </p>
+          ) : question.answerMethod === "multiple_choice" ? (
+            <PlayerAnswerGrid
+              question={question}
+              revealed={revealed}
+              locked={locked}
+              selectedOptionId={selectedOptionId}
+              onSelect={onSelectOption}
+            />
+          ) : (
+            <PlayerTypedAnswer
+              question={question}
+              revealed={revealed}
+              locked={locked}
+              isTeamMode={isTeamMode}
+              submittedText={typedSubmittedText}
+              onSubmit={onSubmitTyped}
+            />
+          )}
+        </div>
+
+        {revealed && (!isTeamMode || hasTeam) && (
+          <PlayerResultMessage question={question} isTeamMode={isTeamMode} gradingStatus={gradingStatus} />
+        )}
+
+        {!revealed && submitted && (!isTeamMode || hasTeam) && (
+          <p className="player-submitted-note" role="status">
+            <span aria-hidden="true">✓</span> Answer submitted — Waiting for Host&hellip;
+          </p>
+        )}
+      </section>
+    </div>
   );
 }
 
 /**
- * Shown above the answer form for the duration of the Question phase -
- * "Waiting for the Host to begin..." before a Host Controlled countdown
- * starts (no countdown yet, but Players may still tap an answer early -
- * see submitAnswer's guard, which only ever blocks on "expired"), the
- * live countdown while running/paused, or the locked-out message once
- * time's up. Renders nothing at all in No Timer mode.
+ * Multiple Choice's answer grid - the exact same `.live-game-answer-*`
+ * classes the Host's own cheat-sheet grid uses (see liveGameShell.css),
+ * just applied to real `<button>`s instead of read-only `<div>`s (see
+ * `.player-answer-button` in PlayerRoomPage.css for the interactive
+ * reset that adds). `.is-correct` only ever applies once `revealed` is
+ * true - unlike the Host, a Player must never see which option is
+ * correct before the Host actually reveals it. Still clickable up
+ * until Reveal (a Player may change their mind), so `.is-selected` is
+ * a lighter "this is my current pick" cue, never a red/incorrect one -
+ * whether it was right only exists after Reveal, and even then lives
+ * in the trailing PlayerResultMessage rather than a red card (see
+ * TRIVIA_NIGHT_MEMORY.md - there is no red/error token in this
+ * palette).
  */
-function QuestionTimerBanner({
-  questionTimerSeconds,
-  questionFlow,
-  timerStatus,
-  remainingSeconds,
-}: {
-  questionTimerSeconds: number | null;
-  questionFlow: QuestionFlow;
-  timerStatus: TimerStatus;
-  remainingSeconds: number | null;
-}) {
-  if (questionTimerSeconds === null) return null;
-
-  if (timerStatus === "expired") {
-    return (
-      <p className="player-room-status" role="status">
-        Time&rsquo;s up! Your answer has been locked.
-      </p>
-    );
-  }
-
-  if (questionFlow === "host_controlled" && timerStatus === "not_started") {
-    return (
-      <p className="player-room-status" role="status">
-        Waiting for the Host to begin...
-      </p>
-    );
-  }
-
-  if (remainingSeconds !== null) {
-    return (
-      <p className="player-room-status" role="status">
-        ⏱ {formatCountdown(remainingSeconds)}
-        {timerStatus === "paused" && " — Timer paused by Host."}
-      </p>
-    );
-  }
-
-  return null;
-}
-
-function QuestionAnswering({
+function PlayerAnswerGrid({
   question,
-  sectionInfo,
-  isTeamMode,
-  hasTeam,
+  revealed,
   locked,
   selectedOptionId,
   onSelect,
 }: {
   question: Question;
-  sectionInfo: PlayerSectionInfo | null;
-  isTeamMode: boolean;
-  hasTeam: boolean;
+  revealed: boolean;
   locked: boolean;
   selectedOptionId: string | null;
   onSelect: (optionId: string) => void;
@@ -568,77 +935,67 @@ function QuestionAnswering({
   if (question.answerMethod !== "multiple_choice") return null;
 
   return (
-    <div className="player-question">
-      <SectionEyebrow sectionInfo={sectionInfo} />
-      <h1>{question.prompt}</h1>
-      {isTeamMode && !hasTeam ? (
-        <p className="player-room-warning">You didn&rsquo;t join a team before the game started.</p>
-      ) : (
-        <>
-          <div className="player-options" role="radiogroup" aria-label="Answer choices">
-            {question.options.map((option, index) => {
-              const selected = option.id === selectedOptionId;
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  className={`player-option${selected ? " player-option-selected" : ""}`}
-                  onClick={() => onSelect(option.id)}
-                  disabled={locked}
-                >
-                  <span className="player-option-letter">{String.fromCharCode(65 + index)}</span>
-                  {option.text}
-                </button>
-              );
-            })}
-          </div>
-          {selectedOptionId ? (
-            <p className="player-room-status" role="status">
-              {isTeamMode
-                ? "Team answer updated — anyone on your team can change this until the reveal."
-                : "Recorded — you can change this until the reveal."}
-            </p>
-          ) : (
-            <p className="player-room-status">
-              {isTeamMode ? "Tap an answer to lock it in for your team." : "Tap an answer to lock it in."}
-            </p>
-          )}
-        </>
-      )}
+    <div className="live-game-answers" role="radiogroup" aria-label="Answer choices">
+      {question.options.map((option, index) => {
+        const selected = option.id === selectedOptionId;
+        const isCorrectOption = revealed && option.id === question.correctOptionId;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            className={`live-game-answer-card player-answer-button${
+              isCorrectOption ? " is-correct" : selected ? " is-selected" : ""
+            }`}
+            onClick={() => onSelect(option.id)}
+            disabled={locked || revealed}
+          >
+            <span className="live-game-answer-letter" aria-hidden="true">
+              {String.fromCharCode(65 + index)}
+            </span>
+            <span className="live-game-answer-text">{option.text}</span>
+            {isCorrectOption && <span className="live-game-answer-correct-tag">Correct</span>}
+          </button>
+        );
+      })}
     </div>
   );
 }
 
-function TypedAnswerQuestionPhase({
+/**
+ * Typed Answer's pre-Reveal input (unique to the Player - the Host's
+ * own Typed Answer view shows an answer key instead, which a Player
+ * must never see early) vs. its post-Reveal answer-key box, which
+ * *does* reuse the Host's exact `.host-typed-answer-key` styling -
+ * safe now that the correct answer is public.
+ */
+function PlayerTypedAnswer({
   question,
-  sectionInfo,
-  isTeamMode,
-  hasTeam,
+  revealed,
   locked,
+  isTeamMode,
   submittedText,
   onSubmit,
 }: {
   question: TypedAnswerQuestion;
-  sectionInfo: PlayerSectionInfo | null;
-  isTeamMode: boolean;
-  hasTeam: boolean;
+  revealed: boolean;
   locked: boolean;
+  isTeamMode: boolean;
   submittedText: string | null;
   onSubmit: (text: string) => Promise<void>;
 }) {
-  return (
-    <div className="player-question">
-      <SectionEyebrow sectionInfo={sectionInfo} />
-      <h1>{question.prompt}</h1>
-      {isTeamMode && !hasTeam ? (
-        <p className="player-room-warning">You didn&rsquo;t join a team before the game started.</p>
-      ) : (
-        <TypedAnswerInput isTeamMode={isTeamMode} locked={locked} submittedText={submittedText} onSubmit={onSubmit} />
-      )}
-    </div>
-  );
+  if (revealed) {
+    return (
+      <div className="host-typed-answer-key">
+        <p>
+          Correct answer: <strong>{question.correctAnswer}</strong>
+        </p>
+      </div>
+    );
+  }
+
+  return <TypedAnswerInput isTeamMode={isTeamMode} locked={locked} submittedText={submittedText} onSubmit={onSubmit} />;
 }
 
 /**
@@ -653,7 +1010,10 @@ function TypedAnswerQuestionPhase({
  * A blank Submit is blocked with inline validation rather than treated
  * as silently clearing the answer - accidentally clearing a real
  * submitted answer with an empty tap would be a worse failure mode than
- * asking the player to type something first.
+ * asking the player to type something first. Still editable/re-
+ * submittable up until Reveal, same as Multiple Choice's grid above -
+ * the calmer post-submit language lives in PlayerLiveQuestionPhase's
+ * own trailing "Answer submitted" line, not repeated here.
  */
 function TypedAnswerInput({
   isTeamMode,
@@ -694,10 +1054,13 @@ function TypedAnswerInput({
         </p>
       )}
       <form onSubmit={(event) => void handleSubmit(event)}>
-        <label htmlFor="typed-answer-input">Your answer</label>
+        <label htmlFor="typed-answer-input" className="sr-only-label">
+          Your answer
+        </label>
         <input
           id="typed-answer-input"
           type="text"
+          placeholder="Type your answer"
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           maxLength={TYPED_ANSWER_MAX_LENGTH}
@@ -705,7 +1068,7 @@ function TypedAnswerInput({
           disabled={busy || locked}
         />
         {error && (
-          <p className="player-room-warning" role="alert">
+          <p className="host-style-note" role="alert">
             {error}
           </p>
         )}
@@ -713,20 +1076,21 @@ function TypedAnswerInput({
           Submit
         </button>
       </form>
-      <p className="player-room-status">
-        {submittedText !== null
-          ? isTeamMode
-            ? "Team answer updated — anyone on your team can change this until the reveal."
-            : "You can still change this before the reveal."
-          : isTeamMode
-            ? "Type an answer and press Submit to set your team's answer."
-            : "Type your answer and press Submit."}
-      </p>
     </div>
   );
 }
 
-function RevealResult({
+/**
+ * The Reveal-phase result line - "Reuse the exact answer reveal
+ * styling already used in the Host interface" for the *correct
+ * answer itself* means the highlighted `.is-correct` card (see
+ * PlayerAnswerGrid/PlayerTypedAnswer); this is the one genuinely
+ * Player-only addition, a short, calm statement of the Player's own
+ * outcome. Colour follows the app's existing rule (no red/error token -
+ * teal for positive, orange for "needs attention"), never colour alone
+ * (icon + text pairing).
+ */
+function PlayerResultMessage({
   question,
   isTeamMode,
   gradingStatus,
@@ -740,21 +1104,37 @@ function RevealResult({
       ? question.options.find((option) => option.id === question.correctOptionId)?.text
       : question.correctAnswer;
 
-  const heading = (() => {
-    if (gradingStatus === "correct") return isTeamMode ? "Your team got it! ✓" : "Correct! ✓";
-    if (gradingStatus === "pending_review") return "Your answer is being checked.";
-    if (gradingStatus === "incorrect") return "Not this time";
-    return isTeamMode ? "Your team didn't answer" : "You didn't answer";
-  })();
+  if (gradingStatus === "correct") {
+    return (
+      <p className="player-result is-correct" role="status">
+        <span aria-hidden="true">✓</span> Correct!
+      </p>
+    );
+  }
+
+  if (gradingStatus === "incorrect") {
+    return (
+      <div className="player-result is-incorrect" role="status">
+        <p>
+          <span aria-hidden="true">✕</span> Incorrect
+        </p>
+        <p className="player-result-detail">Correct answer: {correctAnswerText}</p>
+      </div>
+    );
+  }
+
+  if (gradingStatus === "pending_review") {
+    return (
+      <p className="player-result" role="status">
+        Your answer is being checked.
+      </p>
+    );
+  }
 
   return (
-    <div className="player-reveal">
-      <h1>{heading}</h1>
-      <p>The answer was {correctAnswerText}.</p>
-      <p className="player-room-status" role="status">
-        Waiting for the host to continue…
-      </p>
-    </div>
+    <p className="player-result" role="status">
+      {isTeamMode ? "Your team didn’t answer." : "You didn’t answer."}
+    </p>
   );
 }
 

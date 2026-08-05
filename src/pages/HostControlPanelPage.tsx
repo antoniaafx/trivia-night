@@ -7,14 +7,13 @@ import { useGameRoom } from "../hooks/useGameRoom";
 import { useAutosaveController, type SaveStatus } from "../hooks/useAutosaveController";
 import { useCountdown } from "../hooks/useCountdown";
 import { formatCountdown } from "../utils/timer";
-import { getNextQuestionId, getQuestionById, QUESTIONS, type Question, type TypedAnswerQuestion } from "../data/questions";
+import { getNextQuestionId, getQuestionById, type Question, type TypedAnswerQuestion } from "../data/questions";
 import { computeWinners, sortLeaderboard } from "../utils/scoring";
 import {
   computePlanSummary,
   findSectionForQuestion,
   QUESTION_FLOW_DEFAULT,
   type HostParticipation,
-  type PlannedGamePlanSummary,
   type QuestionFlow,
   type RoomDeckSnapshot,
 } from "../utils/gamePlan";
@@ -26,6 +25,7 @@ import RoomQrCode from "../components/RoomQrCode";
 import LoadingScreen from "../components/LoadingScreen";
 import SelectedDecksPanel from "../components/SelectedDecksPanel";
 import DeckPicker from "../components/DeckPicker";
+import GameSummaryCard from "../components/GameSummaryCard";
 import type { RoomPlayer } from "../types/room";
 import type { DeckEntry } from "../types/deck";
 import type {
@@ -38,6 +38,8 @@ import type {
   TimerStatus,
 } from "../types/game";
 import { playerToCompetitor, teamToCompetitor } from "../types/game";
+import "../styles/hostDashboardShell.css";
+import "../styles/liveGameShell.css";
 import "./HostControlPanelPage.css";
 
 function describeStatus(status: string): string {
@@ -979,58 +981,6 @@ function QuestionFlowPicker({ value, onChange }: { value: QuestionFlow; onChange
         Automatic
       </label>
     </fieldset>
-  );
-}
-
-/**
- * Updates live as the Host changes any setting above - a final,
- * easy-to-scan overview before Start Game, never a separate
- * confirmation step. Key/value rather than a bullet list, on purpose:
- * each row pairs a fixed label with the value it currently holds, the
- * same shape as the settings above it, not restated as a sentence.
- */
-function GameSummaryCard({
-  planSummary,
-  competitionStyle,
-  questionTimerSeconds,
-  questionFlow,
-  hostParticipation,
-}: {
-  planSummary: PlannedGamePlanSummary;
-  competitionStyle: CompetitionStyle;
-  questionTimerSeconds: number | null;
-  questionFlow: QuestionFlow;
-  hostParticipation: HostParticipation;
-}) {
-  const deckLabel = planSummary.deckCount === 0 ? "Quick Play" : `${planSummary.deckCount} Selected`;
-  // planSummary is computed purely from selected Decks (see
-  // computePlanSummary) and is empty for Quick Play, which plays the
-  // hardcoded QUESTIONS list instead - reading its real length here
-  // rather than showing planSummary's (correct-but-misleading, for
-  // Quick Play) 0.
-  const questionCount = planSummary.deckCount === 0 ? QUESTIONS.length : planSummary.questionCount;
-
-  const rows: [string, string][] = [
-    ["Competition", competitionStyle === "team" ? "Teams" : "Solo"],
-    ["Decks", deckLabel],
-    ["Questions", String(questionCount)],
-    ["Question Timer", questionTimerSeconds === null ? "No Timer" : `${questionTimerSeconds} Seconds`],
-    ["Question Flow", questionFlow === "host_controlled" ? "Host Controlled" : "Automatic"],
-    ["Host", hostParticipation === "playing_host" ? "Host Playing" : "Dedicated Host"],
-  ];
-
-  return (
-    <section className="host-dashboard-section host-dashboard-summary">
-      <h3>Game Summary</h3>
-      <dl className="host-dashboard-summary-list">
-        {rows.map(([label, value]) => (
-          <div className="host-dashboard-summary-row" key={label}>
-            <dt>{label}</dt>
-            <dd>{value}</dd>
-          </div>
-        ))}
-      </dl>
-    </section>
   );
 }
 
