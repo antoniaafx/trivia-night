@@ -8,7 +8,7 @@ import { useAutosaveController, type SaveStatus } from "../hooks/useAutosaveCont
 import { useCountdown } from "../hooks/useCountdown";
 import { formatCountdown } from "../utils/timer";
 import { getNextQuestionId, getQuestionById, QUESTIONS, type Question, type TypedAnswerQuestion } from "../data/questions";
-import { computeWinners } from "../utils/scoring";
+import { computeWinners, sortLeaderboard } from "../utils/scoring";
 import {
   computePlanSummary,
   findSectionForQuestion,
@@ -24,7 +24,6 @@ import { avatarForClientId } from "../utils/avatars";
 import { fetchDecksWithQuestions } from "../services/deckRepository";
 import RoomQrCode from "../components/RoomQrCode";
 import LoadingScreen from "../components/LoadingScreen";
-import CompetitorLeaderboard from "../components/CompetitorLeaderboard";
 import SelectedDecksPanel from "../components/SelectedDecksPanel";
 import DeckPicker from "../components/DeckPicker";
 import type { RoomPlayer } from "../types/room";
@@ -510,7 +509,9 @@ function HostControlPanelPage() {
       {!(
         (room.phase === "lobby" && (lobbyStage === "invite" || lobbyStage === "setup")) ||
         room.phase === "question" ||
-        room.phase === "reveal"
+        room.phase === "reveal" ||
+        room.phase === "leaderboard" ||
+        room.phase === "ended"
       ) && (
         <div className="host-lobby-invite card">
           <RoomQrCode joinUrl={joinUrl} size={180} />
@@ -575,23 +576,21 @@ function HostControlPanelPage() {
         </div>
       )}
 
-      {room.phase === "leaderboard" && (
-        <LeaderboardPhase
+      {/* Leaderboard and Ended are two states of the same screen, not a
+          standings page followed by a separate winner page - see
+          HostLeaderboardPhase's own doc comment. */}
+      {(room.phase === "leaderboard" || room.phase === "ended") && (
+        <HostLeaderboardPhase
+          ended={room.phase === "ended"}
           competitors={competitors}
           unitLabel={unitLabel}
+          totalQuestions={questionList.length}
+          winnerIds={room.winnerIds}
           pendingItems={pendingItems}
           busyReviewId={busyReviewId}
           question={question}
           onReview={(id, decision) => void handleReview(id, decision)}
           onShowWinner={() => void showWinner()}
-        />
-      )}
-
-      {room.phase === "ended" && (
-        <EndedPhase
-          competitors={competitors}
-          unitLabel={unitLabel}
-          winnerIds={room.winnerIds}
           onPlayAgain={() => void playAgain()}
         />
       )}
@@ -1770,72 +1769,148 @@ function TypedAnswerReviewQueue({
   );
 }
 
-function LeaderboardPhase({
+/**
+ * The Host's standings screen - one component covering both the
+ * `leaderboard` and `ended` room phases, the same "two states of one
+ * screen" pattern LiveGamePhase already established for Question/
+ * Reveal (see that component's own doc comment). This app's game
+ * structure only ever has a single standings moment - `leaderboard`
+ * is reached once, after the last Question of the last Deck (see
+ * ALLOWED_PHASE_TRANSITIONS in types/game.ts), never once per Deck -
+ * so there is no "Deck Winner," no mid-game standings checkpoint, and
+ * nothing to compute a rank *change* against; this redesign covers
+ * the one real standings moment this app has today, not a mid-game
+ * leaderboard system.
+ *
+ * `ended` swaps in a winner celebration banner above the same ranked
+ * list and swaps the footer action from Show Winner to Play Again -
+ * everything else (header shape, list, floating action position)
+ * stays at the same DOM position, so pressing Show Winner reads as
+ * this screen continuing, not navigating to a separate winner page.
+ *
+ * Renders its own ranked rows (via the same `sortLeaderboard` the
+ * shared `CompetitorLeaderboard` component uses) rather than reusing
+ * that component directly - `CompetitorLeaderboard` is also rendered
+ * by the Player and Stage pages, which are out of scope for this
+ * redesign and must keep their current appearance.
+ */
+function HostLeaderboardPhase({
+  ended,
   competitors,
   unitLabel,
+  totalQuestions,
+  winnerIds,
   pendingItems,
   busyReviewId,
   question,
   onReview,
   onShowWinner,
+  onPlayAgain,
 }: {
+  ended: boolean;
   competitors: Competitor[];
   unitLabel: string;
+  totalQuestions: number;
+  winnerIds: string[];
   pendingItems: PendingReviewItem[];
   busyReviewId: string | null;
   question: Question | null;
   onReview: (id: string, decision: "correct" | "incorrect") => void;
   onShowWinner: () => void;
+  onPlayAgain: () => void;
 }) {
-  return (
-    <div className="host-phase card">
-      <p className="host-phase-label">Leaderboard</p>
-      <CompetitorLeaderboard competitors={competitors} emptyMessage={`No ${unitLabel}s to show yet.`} />
+  const ranked = sortLeaderboard(competitors);
+  const winners = ended ? computeWinners(competitors).filter((competitor) => winnerIds.includes(competitor.id)) : [];
+  const reviewBlocking = !ended && pendingItems.length > 0 && question?.answerMethod === "typed_answer";
 
-      {pendingItems.length > 0 && question?.answerMethod === "typed_answer" ? (
-        <>
+  return (
+    <div className="host-leaderboard">
+      <header className="host-leaderboard-header">
+        <div>
+          <p className="host-leaderboard-eyebrow">Final Results</p>
+          <h2>{ended ? "Trivia Complete" : "Current Standings"}</h2>
+        </div>
+        <p className="host-leaderboard-progress">
+          {totalQuestions} Question{totalQuestions === 1 ? "" : "s"} Complete
+        </p>
+      </header>
+
+      {ended && (
+        <div className="host-leaderboard-winner-banner">
+          {winners.length === 0 ? (
+            <p>No {unitLabel}s took part</p>
+          ) : (
+            <>
+              <p className="host-leaderboard-winner-label">
+                <span aria-hidden="true">🏆</span> Winner
+              </p>
+              <p className="host-leaderboard-winner-name">
+                {winners.map((competitor) => competitor.displayName).join(" & ")}
+              </p>
+              <p className="host-leaderboard-winner-score">
+                {winners[0].score} Point{winners[0].score === 1 ? "" : "s"}
+              </p>
+            </>
+          )}
+        </div>
+      )}
+
+      {ranked.length === 0 ? (
+        <p className="host-leaderboard-empty">No {unitLabel}s to show yet.</p>
+      ) : (
+        <ol className="host-leaderboard-list">
+          {ranked.map((competitor, index) => {
+            const rank = index + 1;
+            const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : null;
+            return (
+              <li
+                key={competitor.id}
+                className={`host-leaderboard-row${rank <= 3 ? " is-podium" : ""}${
+                  ended && winnerIds.includes(competitor.id) ? " is-winner" : ""
+                }`}
+              >
+                <span className="host-leaderboard-rank">
+                  {medal ? (
+                    <>
+                      <span aria-hidden="true">{medal}</span>
+                      <span className="sr-only-label">Rank {rank}</span>
+                    </>
+                  ) : (
+                    rank
+                  )}
+                </span>
+                <span className="host-leaderboard-name">{competitor.displayName}</span>
+                <span className="host-leaderboard-score">{competitor.score} pts</span>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+
+      {reviewBlocking && (
+        <div className="host-leaderboard-review">
           <p className="host-lobby-status" role="status">
             {pendingItems.length} answer{pendingItems.length === 1 ? "" : "s"} still need review before the winner
             can be shown.
           </p>
-          <TypedAnswerReviewQueue items={pendingItems} question={question} busyItemId={busyReviewId} onReview={onReview} />
-        </>
-      ) : (
-        <button type="button" className="btn btn-primary" onClick={onShowWinner}>
-          Show Winner
+          <TypedAnswerReviewQueue
+            items={pendingItems}
+            question={question as TypedAnswerQuestion}
+            busyItemId={busyReviewId}
+            onReview={onReview}
+          />
+        </div>
+      )}
+
+      {!reviewBlocking && (
+        <button
+          type="button"
+          className="btn btn-primary host-floating-action"
+          onClick={ended ? onPlayAgain : onShowWinner}
+        >
+          {ended ? "Play Again" : "Show Winner"}
         </button>
       )}
-    </div>
-  );
-}
-
-function EndedPhase({
-  competitors,
-  unitLabel,
-  winnerIds,
-  onPlayAgain,
-}: {
-  competitors: Competitor[];
-  unitLabel: string;
-  winnerIds: string[];
-  onPlayAgain: () => void;
-}) {
-  const winners = computeWinners(competitors).filter((competitor) => winnerIds.includes(competitor.id));
-
-  return (
-    <div className="host-phase card">
-      <p className="host-phase-label">Winner</p>
-      <h2>
-        {winners.length === 0
-          ? `No ${unitLabel}s took part`
-          : winners.length === 1
-            ? `${winners[0].displayName} wins!`
-            : `${winners.map((competitor) => competitor.displayName).join(", ")} tie for the win!`}
-      </h2>
-      <CompetitorLeaderboard competitors={competitors} emptyMessage={`No ${unitLabel}s to show yet.`} />
-      <button type="button" className="btn btn-primary" onClick={onPlayAgain}>
-        Play Again
-      </button>
     </div>
   );
 }
