@@ -140,6 +140,10 @@ function MyDecksPage() {
 
   return (
     <div className="my-decks">
+      <Link to="/" className="btn btn-ghost my-decks-back">
+        ‹ Back to Home
+      </Link>
+
       <div className="my-decks-header">
         <h1>My Decks</h1>
         <button type="button" className="btn btn-primary" onClick={() => void handleCreate()} disabled={creating}>

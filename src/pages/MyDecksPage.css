@@ -8,6 +8,10 @@
   gap: var(--space-md);
 }
 
+.my-decks-back {
+  align-self: flex-start;
+}
+
 .my-decks-header {
   display: flex;
   align-items: center;

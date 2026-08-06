@@ -17,7 +17,11 @@ import {
   type QuestionFlow,
   type RoomDeckSnapshot,
 } from "../utils/gamePlan";
-import { QUESTION_TIMER_OPTIONS_SECONDS, QUESTION_TIMER_SECONDS_DEFAULT } from "../config/timingEstimates";
+import {
+  QUESTION_TIMER_OPTIONS_SECONDS,
+  QUESTION_TIMER_SECONDS_DEFAULT,
+  REVEAL_SECONDS_ESTIMATE,
+} from "../config/timingEstimates";
 import { buildJoinUrl, buildStageUrl } from "../utils/roomLinks";
 import { avatarForClientId } from "../utils/avatars";
 import { fetchDecksWithQuestions } from "../services/deckRepository";
@@ -44,6 +48,8 @@ import "../styles/liveGameShell.css";
 import "../styles/leaderboardShell.css";
 import "./HostControlPanelPage.css";
 
+const TEST_MODE_KEY_PREFIX = "trivia-night:test-mode:";
+
 function describeStatus(status: string): string {
   switch (status) {
     case "connected":
@@ -55,6 +61,25 @@ function describeStatus(status: string): string {
     default:
       return "Connecting...";
   }
+}
+
+/**
+ * What a competitor actually submitted, in the same "A — Sydney" shape
+ * the Question Card's own answer letters already use for Multiple
+ * Choice (so the Host can cross-reference at a glance), or the raw
+ * typed text for Typed Answer. `question` is only nullable here because
+ * the caller computes this before the phase-specific "is there even a
+ * current Question" branch exists - by the time it's actually rendered
+ * (inside LiveGamePhase), it never is.
+ */
+function describeSubmittedAnswer(question: Question | null, answer: AnswerRecord | TeamAnswerRecord): string {
+  if (!question) return "—";
+  if (question.answerMethod === "multiple_choice") {
+    const optionIndex = question.options.findIndex((option) => option.id === answer.optionId);
+    const option = question.options[optionIndex];
+    return option ? `${String.fromCharCode(65 + optionIndex)} — ${option.text}` : "—";
+  }
+  return answer.textAnswer ?? "—";
 }
 
 interface PendingReviewItem {
@@ -121,6 +146,15 @@ function HostControlPanelPage() {
   // these two buttons at a time, so one busy/error pair is enough.
   const [stageBusy, setStageBusy] = useState(false);
   const [stageError, setStageError] = useState<string | null>(null);
+
+  // Set once, the moment the Host chooses "Start Test Session" (Continue
+  // with zero Players joined) - persisted per room in sessionStorage so
+  // it survives a refresh, same pattern as useClientId. There is no
+  // server-side notion of a "test" game; this is purely a same-tab label
+  // that removes ambiguity for the Host, nothing else reads or trusts it.
+  const [testMode, setTestMode] = useState<boolean>(
+    () => sessionStorage.getItem(`${TEST_MODE_KEY_PREFIX}${roomCode}`) === "1",
+  );
 
   // Every Deck the Host owns (in this browser), each with its full
   // Question list - the picker/readiness data GameSetupPanel needs.
@@ -305,11 +339,85 @@ function HostControlPanelPage() {
     void expireTimer();
   }, [room?.phase, room?.timerStatus, liveRemainingSeconds, expireTimer]);
 
+  /**
+   * Automatic Question Flow drives the whole round itself, with no
+   * Host interaction required (see QuestionFlow's own doc comment:
+   * "'automatic' starts the countdown the instant the Question
+   * appears, no Host interaction required" - starting the timer is
+   * already handled, by computeInitialTimerFields; this is the other
+   * half, actually completing the round). Two effects:
+   *
+   * 1. Once the timer above has flipped `timerStatus` to "expired",
+   *    reveal automatically - reusing the exact same `handleReveal` a
+   *    manual click uses (same busy/error state), so a race between
+   *    the two is harmless: `handleReveal`'s own `revealing` guard
+   *    makes a concurrent second call a no-op.
+   * 2. Once revealed, auto-advance to the next Question (or the
+   *    Leaderboard, on the last one) after a fixed pause - long enough
+   *    to actually read the Reveal screen, reusing the same
+   *    `REVEAL_SECONDS_ESTIMATE` this app already assumes elsewhere
+   *    (Game Summary's own "Estimated Time"), not a new number invented
+   *    for this. Never advances past an unresolved Typed-Answer review
+   *    (`pendingCount > 0`) - same gate the manual "Continue Anyway"
+   *    ghost button exists for; Automatic mode simply pauses there
+   *    until the Host resolves it, same as the button does.
+   *
+   * Never fires for "host_controlled" flow, which keeps working exactly
+   * as before (manual Reveal Answer / Next Question). Both effects live
+   * here, before the early-return guards below, for the same reason the
+   * timer-expiry effect above does - Hooks must run unconditionally in
+   * the same order every render - so their own inputs are recomputed
+   * from the raw hook state with optional chaining rather than the
+   * later, JSX-scoped `questionFlow`/`pendingItems`/`nextQuestionId`
+   * variables, which don't exist yet at this point in the component.
+   */
+  const autoQuestionFlow = room?.deckSnapshot?.questionFlow ?? QUESTION_FLOW_DEFAULT;
+
+  useEffect(() => {
+    if (!room || room.phase !== "question" || room.timerStatus !== "expired") return;
+    if (autoQuestionFlow !== "automatic") return;
+    void handleReveal();
+    // handleReveal is a plain function redefined every render (not a
+    // stable useCallback) - including it here would refire this effect
+    // every render for no reason. Its own `revealing` guard already
+    // makes that safe either way.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room?.phase, room?.timerStatus, autoQuestionFlow]);
+
+  useEffect(() => {
+    if (!room || room.phase !== "reveal") return;
+    if (autoQuestionFlow !== "automatic") return;
+    const pendingCount =
+      room.competitionStyle === "team"
+        ? teamAnswers.filter((answer) => answer.gradingStatus === "pending_review").length
+        : answers.filter((answer) => answer.gradingStatus === "pending_review").length;
+    if (pendingCount > 0) return;
+    const nextId = getNextQuestionId(questionList, room.currentQuestionId);
+    const timer = setTimeout(() => {
+      void (nextId ? advanceQuestion() : showLeaderboard());
+    }, REVEAL_SECONDS_ESTIMATE * 1000);
+    return () => clearTimeout(timer);
+  }, [
+    room?.phase,
+    room?.currentQuestionId,
+    room?.competitionStyle,
+    autoQuestionFlow,
+    answers,
+    teamAnswers,
+    questionList,
+    advanceQuestion,
+    showLeaderboard,
+  ]);
+
   async function handleContinueToSetup() {
     if (stageBusy) return;
     setStageError(null);
     setStageBusy(true);
     try {
+      if (joinedPlayers.length === 0) {
+        sessionStorage.setItem(`${TEST_MODE_KEY_PREFIX}${roomCode}`, "1");
+        setTestMode(true);
+      }
       await advanceToSetup();
     } catch (error) {
       setStageError(error instanceof Error ? error.message : "Couldn't continue. Try again.");
@@ -440,6 +548,18 @@ function HostControlPanelPage() {
   });
   const noAnswerCompetitors = competitors.filter((competitor) => !resultStatusByCompetitorId.has(competitor.id));
 
+  // What each competitor actually submitted, alongside the outcome
+  // grouping above - the same already-fetched `gradedAnswers` rows, just
+  // reading `optionId`/`textAnswer` instead of `gradingStatus`. Lets the
+  // Host react naturally on Reveal ("Team Bravo said Sydney") instead of
+  // only seeing right/wrong. No new reads, no new grading logic.
+  const answerContentByCompetitorId = new Map(
+    gradedAnswers.map((answer) => {
+      const id = isTeamMode ? (answer as TeamAnswerRecord).teamId : (answer as AnswerRecord).clientId;
+      return [id, describeSubmittedAnswer(question, answer)] as const;
+    }),
+  );
+
   const nextQuestionId = getNextQuestionId(questionList, room.currentQuestionId);
 
   async function handleReview(id: string, decision: "correct" | "incorrect") {
@@ -457,6 +577,12 @@ function HostControlPanelPage() {
 
   return (
     <div className="host-lobby">
+      {testMode && (
+        <p className="host-test-mode-badge" role="status">
+          🧪 TEST MODE
+        </p>
+      )}
+
       {room.phase === "lobby" && lobbyStage === "invite" && (
         <InviteLobbyPhase
           roomCode={roomCode}
@@ -550,6 +676,7 @@ function HostControlPanelPage() {
           incorrectCompetitors={incorrectCompetitors}
           pendingReviewCompetitors={pendingReviewCompetitors}
           noAnswerCompetitors={noAnswerCompetitors}
+          answerContentByCompetitorId={answerContentByCompetitorId}
           unitLabel={unitLabel}
           questionTimerSeconds={questionTimerSeconds}
           questionFlow={questionFlow}
@@ -684,9 +811,13 @@ function RematchSummary({ plan }: { plan: Extract<RoomDeckSnapshot, { kind: "gam
  * Stage 1 - just getting people connected. Deliberately shows no game
  * settings at all (not even the Competition Style picker) - that's
  * Game Setup's job. Continue is always available, even with zero
- * Players, so the Host can test alone; its label makes that explicit
- * ("Continue without players") rather than implying something is
- * missing, as "Continue Anyway" used to.
+ * Players, so the Host can test alone; with nobody joined the button
+ * relabels itself "Start Test Session" (plus a helper line) rather than
+ * "Continue", since "Continue without players" still read as an
+ * apology for something missing rather than a real, named path. The
+ * click also flips the Host's session-only "🧪 TEST MODE" badge on
+ * (see the testMode state in the parent component) so there's never
+ * ambiguity later about whether a given run was a real game.
  *
  * The exact same fixed room panel + right-panel dashboard system as
  * GameSetupPhase (see HostRoomPanel and .host-dashboard-panel's own
@@ -877,7 +1008,14 @@ function RoomStatusSection({
 /**
  * Values are architected around deck-ownership-aware scoring that isn't
  * implemented yet (see HostParticipation's doc comment in gamePlan.ts) -
- * this milestone only adds the field and its realtime sync.
+ * this milestone only adds the field and its realtime sync. "Host
+ * Plays" is disabled in the UI for exactly that reason: selecting it
+ * doesn't actually make the Host join as a competitor (no answer UI,
+ * no scoring, no leaderboard row), so offering it as a live choice
+ * would be a broken option pretending to work - worse than no option
+ * at all. Re-enable this radio only once "Host Plays" is genuinely
+ * implemented end-to-end (join, answer from the Host screen, score,
+ * appear on the leaderboard), not before.
  */
 function HostParticipationPicker({
   value,
@@ -895,8 +1033,9 @@ function HostParticipationPicker({
           name="host-participation"
           checked={value === "playing_host"}
           onChange={() => onChange("playing_host")}
+          disabled
         />
-        Host Plays
+        Host Plays <span className="host-roster-more">(Coming Soon)</span>
       </label>
       <label>
         <input
@@ -1036,9 +1175,12 @@ function HostRoomPanel({
         </p>
       </div>
 
-      <a href={stageUrl} target="_blank" rel="noreferrer" className="btn btn-ghost">
-        Open Stage
-      </a>
+      <div className="host-dashboard-sidebar-stage">
+        <a href={stageUrl} target="_blank" rel="noreferrer" className="btn btn-ghost">
+          Open Stage
+        </a>
+        <p className="host-sidebar-open-stage-hint">Display the presentation screen on your TV or projector.</p>
+      </div>
     </aside>
   );
 }
@@ -1209,7 +1351,7 @@ function GameSetupPhase({
 
                 <DashboardCard
                   title="Host Participation"
-                  helperText="Choose whether the Host joins the game as a player or simply runs the trivia."
+                  helperText="Playing along as the Host isn't supported yet - for now, every game runs with a dedicated, non-competing Host."
                 >
                   <HostParticipationPicker value={hostParticipation} onChange={onSetHostParticipation} />
                 </DashboardCard>
@@ -1312,6 +1454,7 @@ function LiveGamePhase({
   incorrectCompetitors,
   pendingReviewCompetitors,
   noAnswerCompetitors,
+  answerContentByCompetitorId,
   unitLabel,
   questionTimerSeconds,
   questionFlow,
@@ -1343,6 +1486,7 @@ function LiveGamePhase({
   incorrectCompetitors: Competitor[];
   pendingReviewCompetitors: Competitor[];
   noAnswerCompetitors: Competitor[];
+  answerContentByCompetitorId: Map<string, string>;
   unitLabel: string;
   questionTimerSeconds: number | null;
   questionFlow: QuestionFlow;
@@ -1561,6 +1705,7 @@ function LiveGamePhase({
                   variant="correct"
                   competitors={correctCompetitors}
                   limit={rosterLimit}
+                  answerContentByCompetitorId={answerContentByCompetitorId}
                 />
                 <LiveGameResultGroup
                   label="Incorrect"
@@ -1568,6 +1713,7 @@ function LiveGamePhase({
                   variant="incorrect"
                   competitors={incorrectCompetitors}
                   limit={rosterLimit}
+                  answerContentByCompetitorId={answerContentByCompetitorId}
                 />
                 <LiveGameResultGroup
                   label="No Answer"
@@ -1582,6 +1728,7 @@ function LiveGamePhase({
                   variant="pending"
                   competitors={pendingReviewCompetitors}
                   limit={rosterLimit}
+                  answerContentByCompetitorId={answerContentByCompetitorId}
                 />
               </>
             )}
@@ -1612,12 +1759,15 @@ function LiveGameResultGroup({
   variant,
   competitors,
   limit,
+  answerContentByCompetitorId,
 }: {
   label: string;
   icon: string;
   variant: "correct" | "incorrect" | "no-answer" | "pending";
   competitors: Competitor[];
   limit: number;
+  /** Omitted for "No Answer" - there's nothing they submitted to show. */
+  answerContentByCompetitorId?: Map<string, string>;
 }) {
   if (competitors.length === 0) return null;
   const visible = competitors.slice(0, limit);
@@ -1630,8 +1780,14 @@ function LiveGameResultGroup({
       </p>
       <ul>
         {visible.map((competitor) => (
-          <li key={competitor.id} className="live-game-monitor-row">
-            {competitor.displayName}
+          <li
+            key={competitor.id}
+            className={`live-game-monitor-row${answerContentByCompetitorId ? " has-answer" : ""}`}
+          >
+            <span className="live-game-monitor-row-name">{competitor.displayName}</span>
+            {answerContentByCompetitorId && (
+              <span className="live-game-monitor-row-answer">{answerContentByCompetitorId.get(competitor.id)}</span>
+            )}
           </li>
         ))}
         {hiddenCount > 0 && (

@@ -209,6 +209,25 @@
   color: var(--color-text-muted);
 }
 
+/* Post-Reveal result rows (see LiveGameResultGroup) - name and what
+   they actually submitted stack instead of sitting side by side, so
+   longer Typed Answer text or long Multiple Choice option text never
+   has to fight the name for the row's own width. The answer line is
+   deliberately muted, never colour-alone-coded (the group's own label
+   above already carries correct/incorrect/pending meaning via icon+
+   colour - see that rule's own doc comment) - this is purely "what did
+   they say," not a second right/wrong signal. */
+.live-game-monitor-row.has-answer {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+}
+
+.live-game-monitor-row-answer {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
 /* Only ever appears in place of the Waiting group (see LiveGamePhase) -
    never alongside it, so there's no ambiguity about what it replaces. */
 .live-game-monitor-all-done {
@@ -452,4 +471,26 @@
 
 /* .host-room-status-*, .host-dashboard-summary-list/-row(+dt/dd)
    now live in ../styles/hostDashboardShell.css, shared with the Player Lobby. */
+
+/* The sidebar's third region (see .host-dashboard-sidebar's own "three
+   region rhythm" doc comment in hostDashboardShell.css) - Open Stage
+   plus a one-line caption explaining what it actually does, tightly
+   coupled to the button itself (a small gap, not the sidebar's own
+   larger inter-region gap) so it reads as the button's own subtitle,
+   not a fourth region. Host-only: Player's own sidebar has no Open
+   Stage link to caption. */
+.host-dashboard-sidebar-stage {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.host-sidebar-open-stage-hint {
+  margin: 0;
+  max-width: 22ch;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
 
