@@ -1,0 +1,240 @@
+/**
+ * The Leaderboard shell - the standings screen shared verbatim by the
+ * Host's Leaderboard/Ended view (HostControlPanelPage's
+ * HostLeaderboardPhase) and the Player's own Leaderboard/Ended view
+ * (PlayerRoomPage's PlayerLeaderboardPhase), both of which render the
+ * exact same `components/LeaderboardScreen.tsx`. Extracted here for the
+ * same reason as hostDashboardShell.css/liveGameShell.css: one set of
+ * rules, not two hand-copies that could drift apart - side by side, the
+ * two pages should read as the same screen from different perspectives,
+ * differing only in the footer slot (Host gets Show Winner/Play Again
+ * or the typed-answer review queue; Player gets a plain waiting
+ * message - see LeaderboardScreen's own doc comment) and in whether a
+ * `.is-you` row is present at all (Host is never a competitor, so it
+ * never renders on the Host page).
+ */
+
+/* Wide and full-width like the Live Game Control Center (same
+   --max-content-width, no narrow centred card) - this is meant to read
+   as the main focus of the page, not a small floating summary.
+
+   Mobile-first: auto height, the page may scroll if genuinely
+   necessary. At the one workspace breakpoint (860px, reused
+   deliberately) this becomes a fixed-height, no-scroll layout sized to
+   the viewport below the sticky navbar, matching Live Game's own
+   arithmetic. `--host-panel-right-inset` mirrors the same centering
+   math `.host-dashboard-sidebar`/`.host-floating-action` already use
+   elsewhere (see their own doc comments) - solved fresh here since
+   this screen has no sidebar of its own to inherit the value from, but
+   using the identical shared tokens rather than a value that only
+   happens to work at one viewport. Only the Host page's own floating
+   action actually consumes this variable; harmless (simply unused) on
+   the Player page, which has no fixed-position element here at all. */
+.host-leaderboard {
+  --host-panel-right-inset: calc(
+    var(--space-md) + max(0px, calc((100% - (2 * var(--space-md)) - var(--max-content-width)) / 2))
+  );
+  width: 100%;
+  max-width: var(--max-content-width);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  text-align: left;
+}
+
+@media (min-width: 860px) {
+  .host-leaderboard {
+    height: calc(100vh - var(--app-header-height) - (2 * var(--space-lg)));
+    height: calc(100dvh - var(--app-header-height) - (2 * var(--space-lg)));
+  }
+}
+
+.host-leaderboard-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.host-leaderboard-eyebrow {
+  margin: 0 0 0.15rem;
+  font-family: var(--font-heading);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-teal);
+}
+
+.host-leaderboard-header h2 {
+  margin: 0;
+  font-size: 1.75rem;
+}
+
+.host-leaderboard-progress {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+/* Reuses the same gradient/glow tokens .btn-primary already uses
+   elsewhere in the app, rather than a new celebratory colour, so this
+   still reads as the same design system having a moment, not a new
+   one. */
+.host-leaderboard-winner-banner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  padding: var(--space-md);
+  border-radius: var(--radius-lg);
+  background: var(--gradient-primary);
+  box-shadow: var(--shadow-glow-purple);
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.host-leaderboard-winner-label {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-heading);
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.host-leaderboard-winner-name {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 1.75rem;
+}
+
+.host-leaderboard-winner-score {
+  margin: 0;
+  font-size: 1rem;
+  opacity: 0.9;
+}
+
+/* `justify-content: space-evenly` (not `flex-start`) is what satisfies
+   "don't leave the leaderboard stuck to the top" with only 2-3 rows -
+   extra vertical space distributes itself as bigger gaps between rows
+   automatically, no JS row-height calculation needed; once there are
+   enough rows to fill the available height on their own, this has no
+   visible effect and the list behaves like a normal top-aligned
+   stack. */
+.host-leaderboard-list {
+  flex: 1;
+  min-height: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+  gap: var(--space-sm);
+}
+
+@media (min-width: 860px) {
+  /* Same deliberate exception as .live-game-monitor-list (see that
+     rule's own doc comment): a very large room needs everyone to
+     still be visible, and typical room sizes never engage this. */
+  .host-leaderboard-list {
+    overflow-y: auto;
+  }
+}
+
+.host-leaderboard-row {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.host-leaderboard-row.is-podium {
+  border-color: var(--color-teal);
+  background: rgba(45, 212, 191, 0.08);
+}
+
+.host-leaderboard-row.is-winner {
+  border-color: var(--color-yellow);
+  box-shadow: 0 0 0 1px rgba(253, 224, 71, 0.35);
+}
+
+/* Player-only: "this row is me/my team" (see LeaderboardScreen's
+   `highlightCompetitorId` prop) - never rendered on the Host page,
+   since the Host is never a `Competitor` (see TRIVIA_NIGHT_MEMORY.md).
+   Reuses `--color-electric-blue`, this codebase's own established
+   "Player identity" accent (already used for every Player-only
+   interactive focus state - TeamSelector, the typed-answer input),
+   rather than teal (already means "podium/positive" on this exact row)
+   or yellow (already means "winner"). The `.host-leaderboard-you-tag`
+   pairs an icon-equivalent text label with the colour, the same
+   never-colour-alone rule this app follows everywhere else - a row can
+   be `.is-podium`/`.is-winner` and `.is-you` at once; the styles
+   layer, they don't conflict. */
+.host-leaderboard-row.is-you {
+  border-color: var(--color-electric-blue);
+  box-shadow: 0 0 0 1px rgba(0, 194, 255, 0.35);
+}
+
+.host-leaderboard-rank {
+  min-width: 2.5rem;
+  flex-shrink: 0;
+  text-align: center;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 1.5rem;
+}
+
+.host-leaderboard-name {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.host-leaderboard-you-tag {
+  flex-shrink: 0;
+  font-family: var(--font-heading);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-electric-blue);
+}
+
+.host-leaderboard-score {
+  flex-shrink: 0;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.host-leaderboard-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* One-time settle-in per row (see the shared `live-game-row-in`
+   keyframe in global.css) - plays once when a row first mounts (Show
+   Winner swaps this whole screen's content in place, not a new page -
+   see LeaderboardScreen's own doc comment), respects reduced-motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .host-leaderboard-row {
+    animation: live-game-row-in 220ms ease;
+  }
+}

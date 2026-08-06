@@ -13,16 +13,17 @@ import {
   type RoomDeckSnapshot,
 } from "../utils/gamePlan";
 import { formatCountdown } from "../utils/timer";
-import { computeWinners, validateTeamName } from "../utils/scoring";
+import { validateTeamName } from "../utils/scoring";
 import { avatarForClientId } from "../utils/avatars";
 import LoadingScreen from "../components/LoadingScreen";
-import CompetitorLeaderboard from "../components/CompetitorLeaderboard";
 import GameSummaryCard from "../components/GameSummaryCard";
+import LeaderboardScreen from "../components/LeaderboardScreen";
 import type { RoomPlayer } from "../types/room";
 import type { CompetitionStyle, Competitor, GradingStatus, PlayerRecord, TeamRecord } from "../types/game";
 import { playerToCompetitor, teamToCompetitor } from "../types/game";
 import "../styles/hostDashboardShell.css";
 import "../styles/liveGameShell.css";
+import "../styles/leaderboardShell.css";
 import "./PlayerRoomPage.css";
 
 const DISPLAY_NAME_KEY = "trivia-night:display-name";
@@ -214,18 +215,17 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
   return (
     <div className="player-room">
       {/* Lobby folds this same connection status into its own sidebar
-          (see PlayerInfoPanel's "Status" row); Question/Reveal drop it
-          entirely - once the game has actually begun, a Player already
-          knows they're connected, and the room code/"You're in!" copy
-          is exactly the kind of lobby-era information this screen's
-          own redesign brief asks to remove (see PlayerLiveQuestionPhase's
-          own doc comment). Only Leaderboard/Ended (unchanged by either
-          redesign) still show it. */}
-      {(room.phase === "leaderboard" || room.phase === "ended") && (
-        <p className="player-room-status" role="status">
-          {connectionStatus === "connected" ? `You're in! Room ${roomCode}` : describeStatus(connectionStatus)}
-        </p>
-      )}
+          (see PlayerInfoPanel's "Status" row). Every other phase drops
+          it entirely: once the game has actually begun, a Player
+          already knows they're connected, and the room code/"You're
+          in!" copy is exactly the kind of lobby-era information none
+          of those screens should show - Question/Reveal for the
+          reasons in PlayerLiveQuestionPhase's own doc comment,
+          Leaderboard/Ended because they now render the exact same
+          shared `LeaderboardScreen` the Host page does (see
+          PlayerLeaderboardPhase's own doc comment), which has no
+          such line of its own to match - showing one here would break
+          the "identical layout" parity this screen exists for. */}
 
       {room.phase === "lobby" && (
         <PlayerLobbyPhase
@@ -273,22 +273,15 @@ function PlayerRoomContent({ roomCode, self }: { roomCode: string; self: RoomPla
         </p>
       )}
 
-      {room.phase === "leaderboard" && (
-        <div className="player-leaderboard">
-          <h1>Standings</h1>
-          <CompetitorLeaderboard competitors={competitors} highlightId={myCompetitorId} />
-          <p className="player-room-status" role="status">
-            Waiting for the host to continue…
-          </p>
-        </div>
-      )}
-
-      {room.phase === "ended" && (
-        <EndedView
+      {(room.phase === "leaderboard" || room.phase === "ended") && (
+        <PlayerLeaderboardPhase
+          ended={room.phase === "ended"}
           competitors={competitors}
+          unitLabel={unitLabel}
+          totalQuestions={questionList.length}
           winnerIds={room.winnerIds}
           myCompetitorId={myCompetitorId}
-          unitLabel={unitLabel}
+          isTeamMode={isTeamMode}
         />
       )}
     </div>
@@ -1138,40 +1131,57 @@ function PlayerResultMessage({
   );
 }
 
-function EndedView({
+/**
+ * The Player's own standings screen - the read-only counterpart to the
+ * Host's Leaderboard/Ended view, rendering the exact same shared
+ * `LeaderboardScreen` (see that component's own doc comment). Side by
+ * side with the Host page this should look like the same screen from
+ * a different seat: identical header, winner banner, and ranked list,
+ * differing only in the one row this Player/Team occupies (highlighted
+ * via `highlightCompetitorId`/`highlightLabel`) and in the footer - a
+ * plain, calm status line instead of the Host's Show Winner/Play Again
+ * button, since a Player never controls when the game moves on. There
+ * is no separate "you won!"/rank-recap copy anymore (the old
+ * `EndedView` had its own) - the shared header ("Trivia Complete") and
+ * winner banner already say everything that needs saying once, the
+ * same way for both Host and Player; repeating it in Player-only prose
+ * would be exactly the "separate design" this screen is meant not to
+ * be. `.host-leaderboard-row.is-you` is a Player-only style (never
+ * applied on the Host page - the Host is never a `Competitor`), the
+ * only genuinely new visual element on this page.
+ */
+function PlayerLeaderboardPhase({
+  ended,
   competitors,
+  unitLabel,
+  totalQuestions,
   winnerIds,
   myCompetitorId,
-  unitLabel,
+  isTeamMode,
 }: {
+  ended: boolean;
   competitors: Competitor[];
+  unitLabel: string;
+  totalQuestions: number;
   winnerIds: string[];
   myCompetitorId: string | null;
-  unitLabel: string;
+  isTeamMode: boolean;
 }) {
-  const winners = computeWinners(competitors).filter((competitor) => winnerIds.includes(competitor.id));
-  const mine = competitors.find((competitor) => competitor.id === myCompetitorId) ?? null;
-  const iWon = myCompetitorId !== null && winnerIds.includes(myCompetitorId);
-  const myRank = mine ? [...competitors].sort((a, b) => b.score - a.score).indexOf(mine) + 1 : 0;
-
   return (
-    <div className="player-ended">
-      <h1>{iWon ? "You won! 🎉" : "Game over"}</h1>
-      {!iWon && winners.length > 0 && (
-        <p className="player-room-status">
-          {winners.length === 1
-            ? `${winners[0].displayName} wins!`
-            : `${winners.map((w) => w.displayName).join(", ")} tie for the win!`}
+    <LeaderboardScreen
+      ended={ended}
+      competitors={competitors}
+      unitLabel={unitLabel}
+      totalQuestions={totalQuestions}
+      winnerIds={winnerIds}
+      highlightCompetitorId={myCompetitorId}
+      highlightLabel={isTeamMode ? "Your Team" : "You"}
+      footer={
+        <p className="player-leaderboard-status" role="status">
+          {ended ? "Host is deciding what to do next." : "Waiting for Host…"}
         </p>
-      )}
-      {mine && myRank > 0 && (
-        <p>
-          {unitLabel === "team" ? "Your team finished" : "You finished"} #{myRank} with {mine.score} points.
-        </p>
-      )}
-      <CompetitorLeaderboard competitors={competitors} highlightId={myCompetitorId} />
-      <p className="player-room-status">Waiting for the host...</p>
-    </div>
+      }
+    />
   );
 }
 

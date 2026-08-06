@@ -58,14 +58,20 @@
   color: var(--color-text-muted);
 }
 
-.player-leaderboard,
-.player-ended {
-  width: 100%;
-  max-width: 420px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-sm);
+/* The Player's Leaderboard/Ended footer (PlayerLeaderboardPhase) - a
+   plain, centred status line in place of the Host's floating Show
+   Winner/Play Again button. Deliberately not `.host-floating-action`:
+   a Player has nothing to act on here, so this stays a normal in-flow
+   line rather than a fixed-position control - it still lands near the
+   bottom of the screen on its own, since the shared `.host-leaderboard-list`
+   (leaderboardShell.css) already has `flex: 1` and consumes the
+   leftover height above it. */
+.player-leaderboard-status {
+  margin: 0;
+  flex-shrink: 0;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 0.95rem;
 }
 
 /* The Player's own Question/Reveal screen (PlayerLiveQuestionPhase) -

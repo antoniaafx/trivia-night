@@ -165,3 +165,19 @@ svg {
     padding: 0 var(--space-sm);
   }
 }
+
+/* A generic "row settles in" fade+rise, shared across every page that
+   animates a freshly-mounted row/list (Live Game's Player Monitor,
+   the Host/Player Leaderboard's ranked rows) - kept here rather than
+   in any one page's own stylesheet since more than one page now
+   references it by name. */
+@keyframes live-game-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
