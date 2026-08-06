@@ -313,6 +313,54 @@ export function computePlanSummary(decks: DeckPlanInput[]): PlannedGamePlanSumma
   };
 }
 
+export interface GameSummaryCardSourceData {
+  planSummary: PlannedGamePlanSummary;
+  hostParticipation: HostParticipation;
+  questionTimerSeconds: number | null;
+  questionFlow: QuestionFlow;
+}
+
+/**
+ * Normalizes either shape of RoomDeckSnapshot into what the shared
+ * `GameSummaryCard` component needs. A `game_plan` snapshot during the
+ * lobby phase only ever means a Play-Again rematch (see
+ * deriveLobbyStage's own doc comment) - its `sections`/`questions`
+ * already have everything GameSummaryCard needs, just under different
+ * field names than `planned_game`'s pre-computed `planSummary`. Shared
+ * by every read-only audience of a room's deck snapshot (the Player
+ * Lobby, the Stage Lobby) - the Host's own rematch view (RematchSummary)
+ * is untouched and does not use this, since it already has full,
+ * privileged access to the frozen `GamePlan` and doesn't need a
+ * Question-content-free projection of it.
+ */
+export function summarizeDeckSnapshotForSummaryCard(deckSnapshot: RoomDeckSnapshot | null): GameSummaryCardSourceData | null {
+  if (!deckSnapshot) return null;
+
+  if (deckSnapshot.kind === "planned_game") {
+    return {
+      planSummary: deckSnapshot.planSummary,
+      hostParticipation: deckSnapshot.hostParticipation,
+      questionTimerSeconds: deckSnapshot.questionTimerSeconds,
+      questionFlow: deckSnapshot.questionFlow,
+    };
+  }
+
+  return {
+    planSummary: {
+      deckCount: deckSnapshot.sections.length,
+      questionCount: deckSnapshot.questions.length,
+      sections: deckSnapshot.sections.map((section) => ({
+        deckId: section.deckId,
+        deckTitle: section.deckTitle,
+        selectedQuestionCount: section.questionIds.length,
+      })),
+    },
+    hostParticipation: deckSnapshot.hostParticipation,
+    questionTimerSeconds: deckSnapshot.questionTimerSeconds,
+    questionFlow: deckSnapshot.questionFlow,
+  };
+}
+
 /**
  * Which section a given Question belongs to, and its 1-based position
  * among the sections - what Host/Player/Stage use for the lightweight

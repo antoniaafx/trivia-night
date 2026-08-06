@@ -5,13 +5,7 @@ import { useRoomChannel } from "../hooks/useRoomChannel";
 import { useGameRoom } from "../hooks/useGameRoom";
 import { useCountdown } from "../hooks/useCountdown";
 import { getQuestionById, type Question, type TypedAnswerQuestion } from "../data/questions";
-import {
-  findSectionForQuestion,
-  type HostParticipation,
-  type PlannedGamePlanSummary,
-  type QuestionFlow,
-  type RoomDeckSnapshot,
-} from "../utils/gamePlan";
+import { findSectionForQuestion, summarizeDeckSnapshotForSummaryCard, type RoomDeckSnapshot } from "../utils/gamePlan";
 import { formatCountdown } from "../utils/timer";
 import { validateTeamName } from "../utils/scoring";
 import { avatarForClientId } from "../utils/avatars";
@@ -338,7 +332,7 @@ function PlayerLobbyPhase({
   onLeaveTeam: () => Promise<void>;
 }) {
   const myTeam = teams.find((team) => team.id === myTeamId) ?? null;
-  const summary = summarizeDeckSnapshotForPlayer(deckSnapshot);
+  const summary = summarizeDeckSnapshotForSummaryCard(deckSnapshot);
 
   return (
     <div className="host-dashboard">
@@ -399,53 +393,6 @@ function PlayerLobbyPhase({
       </div>
     </div>
   );
-}
-
-interface PlayerGameSummary {
-  planSummary: PlannedGamePlanSummary;
-  hostParticipation: HostParticipation;
-  questionTimerSeconds: number | null;
-  questionFlow: QuestionFlow;
-}
-
-/**
- * Normalizes either shape of RoomDeckSnapshot into what the shared
- * GameSummaryCard needs. A `game_plan` snapshot during the lobby phase
- * only ever means a Play-Again rematch (see deriveLobbyStage's own doc
- * comment) - its `sections`/`questions` already have everything
- * GameSummaryCard needs, just under different field names than
- * `planned_game`'s pre-computed `planSummary`. Deliberately local to
- * this page rather than added to gamePlan.ts: the Host's own rematch
- * view (RematchSummary) is untouched and out of scope here, this only
- * gives the Player Lobby - which has no separate rematch view of its
- * own - one consistent Game Summary either way.
- */
-function summarizeDeckSnapshotForPlayer(deckSnapshot: RoomDeckSnapshot | null): PlayerGameSummary | null {
-  if (!deckSnapshot) return null;
-
-  if (deckSnapshot.kind === "planned_game") {
-    return {
-      planSummary: deckSnapshot.planSummary,
-      hostParticipation: deckSnapshot.hostParticipation,
-      questionTimerSeconds: deckSnapshot.questionTimerSeconds,
-      questionFlow: deckSnapshot.questionFlow,
-    };
-  }
-
-  return {
-    planSummary: {
-      deckCount: deckSnapshot.sections.length,
-      questionCount: deckSnapshot.questions.length,
-      sections: deckSnapshot.sections.map((section) => ({
-        deckId: section.deckId,
-        deckTitle: section.deckTitle,
-        selectedQuestionCount: section.questionIds.length,
-      })),
-    },
-    hostParticipation: deckSnapshot.hostParticipation,
-    questionTimerSeconds: deckSnapshot.questionTimerSeconds,
-    questionFlow: deckSnapshot.questionFlow,
-  };
 }
 
 /**
