@@ -6,6 +6,7 @@ import { useRoomChannel } from "../hooks/useRoomChannel";
 import { useGameRoom } from "../hooks/useGameRoom";
 import { useAutosaveController, type SaveStatus } from "../hooks/useAutosaveController";
 import { useCountdown } from "../hooks/useCountdown";
+import { useRosterLimit } from "../hooks/useRosterLimit";
 import { formatCountdown } from "../utils/timer";
 import { getNextQuestionId, getQuestionById, type Question, type TypedAnswerQuestion } from "../data/questions";
 import {
@@ -677,36 +678,6 @@ function RematchSummary({ plan }: { plan: Extract<RoomDeckSnapshot, { kind: "gam
       </p>
     </div>
   );
-}
-
-/**
- * How many joined Players to show as name chips before summarizing the
- * rest as "+N more" - deliberately viewport-based (see useRosterLimit)
- * so the card never grows into its own scroll container: a chip row
- * wraps to at most a couple of lines at any of these limits, instead of
- * an unbounded list. Recomputed on breakpoint crossings only (matchMedia
- * "change", not a raw resize listener) since it only ever needs to
- * change at those three tiers.
- */
-function computeRosterLimit(): number {
-  if (window.matchMedia("(max-width: 420px)").matches) return 3;
-  if (window.matchMedia("(max-width: 768px)").matches) return 4;
-  return 6;
-}
-
-function useRosterLimit(): number {
-  const [limit, setLimit] = useState(computeRosterLimit);
-
-  useEffect(() => {
-    const queries = [window.matchMedia("(max-width: 420px)"), window.matchMedia("(max-width: 768px)")];
-    function update() {
-      setLimit(computeRosterLimit());
-    }
-    queries.forEach((query) => query.addEventListener("change", update));
-    return () => queries.forEach((query) => query.removeEventListener("change", update));
-  }, []);
-
-  return limit;
 }
 
 /**

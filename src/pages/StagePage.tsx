@@ -1,6 +1,7 @@
 import { Link, useParams } from "react-router-dom";
 import { useGameRoom } from "../hooks/useGameRoom";
 import { useCountdown } from "../hooks/useCountdown";
+import { useRosterLimit } from "../hooks/useRosterLimit";
 import { getQuestionById, type Question } from "../data/questions";
 import { computeAggregateReveal } from "../utils/scoring";
 import { findSectionForQuestion, summarizeDeckSnapshotForSummaryCard, type RoomDeckSnapshot } from "../utils/gamePlan";
@@ -12,18 +13,12 @@ import GameSummaryCard from "../components/GameSummaryCard";
 import LeaderboardScreen from "../components/LeaderboardScreen";
 import RoomQrCode from "../components/RoomQrCode";
 import type { GradedLike } from "../utils/scoring";
-import type { CompetitionStyle, Competitor, TimerStatus } from "../types/game";
+import type { CompetitionStyle, Competitor, TeamRecord, TimerStatus } from "../types/game";
 import type { PlayerRecord } from "../types/game";
 import { playerToCompetitor, teamToCompetitor } from "../types/game";
 import "../styles/hostDashboardShell.css";
 import "../styles/leaderboardShell.css";
 import "./StagePage.css";
-
-// Player names are deliberately never shown here - the Stage is read
-// from across a room, where an emoji reads faster than text - so only
-// a capped number of avatars (see avatarForClientId, shared with the
-// Host Dashboard's Room Status) render before summarizing the rest.
-const STAGE_AVATAR_VISIBLE_LIMIT = 24;
 
 interface StageSectionInfo {
   section: { deckTitle: string };
@@ -42,6 +37,7 @@ interface StageSectionInfo {
  *
  * Every phase now mirrors the exact same design system the Host/Player
  * pages already share (see TRIVIA_NIGHT_MEMORY.md): the Lobby reuses
+ * the Host Dashboard's own two-column shell (`.host-dashboard`) and
  * `GameSummaryCard` verbatim, and Leaderboard/Ended reuses
  * `LeaderboardScreen` verbatim (the same component Host and Player
  * render, `footer` omitted entirely here - the Stage has nothing to
@@ -53,7 +49,10 @@ interface StageSectionInfo {
  * the room, so this page has its own, deliberately larger typography
  * scale (`.stage-*` classes, StagePage.css) built from the same design
  * tokens (spacing/radius/color variables) rather than the same fixed
- * rem sizes.
+ * rem sizes. Every screen is fixed-height and non-scrolling (see
+ * StagePage.css) - the Stage is a presentation display, not a
+ * workspace with a "the page can scroll if it must" fallback the way
+ * the Host Dashboard allows itself.
  */
 function StagePage() {
   const { roomCode = "" } = useParams<{ roomCode: string }>();
@@ -116,7 +115,9 @@ function StagePage() {
         <StageLobbyPhase
           roomCode={roomCode}
           joinUrl={joinUrl}
+          connectionStatus={connectionStatus}
           scorablePlayers={scorablePlayers}
+          teams={teams}
           deckSnapshot={room.deckSnapshot}
           competitionStyle={room.competitionStyle}
         />
@@ -157,71 +158,128 @@ function StagePage() {
 }
 
 /**
- * The Stage's own "Host Dashboard, from the audience" - the same two
- * things the Host Lobby leads with (how to join, what we're about to
- * play), reused verbatim where a shared component exists
- * (`GameSummaryCard`) rather than restating the same facts in new
- * Stage-only prose. One screen for the whole `lobby` phase (both
- * `lobbyStage` "invite" and "setup" - the audience has no equivalent
- * distinction to make, same reasoning as the Player Lobby's own doc
- * comment) instead of the old two-branch invite/setup split.
+ * The Stage's own Host Dashboard, from the audience - the exact same
+ * two-column shell (`.host-dashboard`, `styles/hostDashboardShell.css`)
+ * the Host Lobby/Game Setup and the Player Lobby already share, not a
+ * bespoke Stage-only layout. Left panel (`StageRoomPanel`) is the
+ * "how do I join" card (QR/room code/live status), reusing the exact
+ * `.host-dashboard-sidebar` shape `HostRoomPanel`/`PlayerInfoPanel`
+ * already use; right panel is a `.host-dashboard-panel card` with the
+ * same eyebrow/heading header, a "Players Joined" roster section
+ * (`.host-room-status-roster`, truncated via the same `useRosterLimit`
+ * the Host's own Invite Lobby roster uses - "only show a few, never the
+ * entire list"), then the exact shared `GameSummaryCard`. One screen
+ * for the whole `lobby` phase (both `lobbyStage` "invite" and "setup" -
+ * the audience has no equivalent distinction to make, same reasoning as
+ * the Player Lobby's own doc comment).
  */
 function StageLobbyPhase({
   roomCode,
   joinUrl,
+  connectionStatus,
   scorablePlayers,
+  teams,
   deckSnapshot,
   competitionStyle,
 }: {
   roomCode: string;
   joinUrl: string;
+  connectionStatus: string;
   scorablePlayers: PlayerRecord[];
+  teams: TeamRecord[];
   deckSnapshot: RoomDeckSnapshot | null;
   competitionStyle: CompetitionStyle;
 }) {
   const summary = summarizeDeckSnapshotForSummaryCard(deckSnapshot);
-  const count = scorablePlayers.length;
+  const rosterLimit = useRosterLimit();
+  const isTeamMode = competitionStyle === "team";
+  const visiblePlayers = scorablePlayers.slice(0, rosterLimit);
+  const hiddenCount = scorablePlayers.length - visiblePlayers.length;
 
   return (
-    <div className="stage-lobby">
-      <div className="stage-join-card card">
-        <p className="stage-title">Trivia Night</p>
-        <div className="stage-qr">
-          <RoomQrCode joinUrl={joinUrl} size={220} />
+    <div className="host-dashboard stage-lobby-dashboard">
+      <StageRoomPanel roomCode={roomCode} joinUrl={joinUrl} connectionStatus={connectionStatus} />
+
+      <div className="host-dashboard-main">
+        <div className="host-dashboard-panel card">
+          <div className="host-dashboard-content">
+            <div className="host-dashboard-header">
+              <div>
+                <p className="host-dashboard-eyebrow">Stage Lobby</p>
+                <h2>Waiting for Players</h2>
+              </div>
+            </div>
+
+            <section className="host-dashboard-section">
+              <h3>Players Joined</h3>
+              <p className="host-room-status-count" role="status">
+                {isTeamMode
+                  ? `${teams.length} Team${teams.length === 1 ? "" : "s"} Joined`
+                  : `${scorablePlayers.length} Player${scorablePlayers.length === 1 ? "" : "s"} Joined`}
+              </p>
+              {scorablePlayers.length === 0 ? (
+                <p className="host-dashboard-section-helper">Waiting for players to join…</p>
+              ) : (
+                <ul className="host-room-status-roster">
+                  {visiblePlayers.map((player) => (
+                    <li key={player.clientId}>
+                      <span aria-hidden="true">{avatarForClientId(player.clientId)}</span> {player.displayName}
+                    </li>
+                  ))}
+                  {hiddenCount > 0 && <li className="host-roster-more">+{hiddenCount} more</li>}
+                </ul>
+              )}
+            </section>
+
+            {summary && (
+              <GameSummaryCard
+                planSummary={summary.planSummary}
+                competitionStyle={competitionStyle}
+                questionTimerSeconds={summary.questionTimerSeconds}
+                questionFlow={summary.questionFlow}
+                hostParticipation={summary.hostParticipation}
+              />
+            )}
+          </div>
         </div>
-        <p className="stage-room-code">
-          Room <strong>{roomCode}</strong>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The left panel - permanent "how do I join" info, the same
+ * `.host-dashboard-sidebar` shape `HostRoomPanel`/`PlayerInfoPanel`
+ * already use (fixed, centred, ≥860px). A larger QR than either of
+ * those (`.stage-sidebar-qr`, layered on top of the shared `.invite-qr`
+ * base rule) - this is read from across a room, not at arm's length,
+ * so the Host Dashboard's own compact 100px sidebar QR would be too
+ * small here; everything else about the shape is unchanged. */
+function StageRoomPanel({
+  roomCode,
+  joinUrl,
+  connectionStatus,
+}: {
+  roomCode: string;
+  joinUrl: string;
+  connectionStatus: string;
+}) {
+  return (
+    <aside className="host-dashboard-sidebar card">
+      <div className="host-dashboard-sidebar-identity">
+        <div className="invite-qr stage-sidebar-qr">
+          <RoomQrCode joinUrl={joinUrl} size={190} />
+        </div>
+        <p className="host-lobby-code">
+          Room Code: <strong>{roomCode}</strong>
+        </p>
+        <p className="host-sidebar-live" role="status">
+          <span className="host-sidebar-live-dot" aria-hidden="true" />
+          {connectionStatus === "connected" ? "Live" : "Connecting…"}
         </p>
         <p className="stage-scan-hint">Scan to join the game</p>
       </div>
-
-      {summary && (
-        <div className="stage-summary-card card">
-          <GameSummaryCard
-            planSummary={summary.planSummary}
-            competitionStyle={competitionStyle}
-            questionTimerSeconds={summary.questionTimerSeconds}
-            questionFlow={summary.questionFlow}
-            hostParticipation={summary.hostParticipation}
-          />
-        </div>
-      )}
-
-      <div className="stage-lobby-footer">
-        {count > 0 && (
-          <div className="stage-avatar-row" aria-hidden="true">
-            {scorablePlayers.slice(0, STAGE_AVATAR_VISIBLE_LIMIT).map((player) => (
-              <span key={player.clientId}>{avatarForClientId(player.clientId)}</span>
-            ))}
-          </div>
-        )}
-        <p className="stage-status" role="status">
-          {count === 0
-            ? "Waiting for players to join…"
-            : `${count} Player${count === 1 ? "" : "s"} Joined · Waiting for Host…`}
-        </p>
-      </div>
-    </div>
+    </aside>
   );
 }
 

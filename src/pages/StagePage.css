@@ -1,3 +1,10 @@
+/* No `max-width` here, deliberately - matching `.host-lobby`/
+   `.player-room`'s own convention, where the wrapper itself is
+   unconstrained and each phase's own class sets its own max-width
+   (`.host-dashboard`: 1100px; `.stage-question`: 900px;
+   `.host-leaderboard`: --max-content-width). A fixed cap here would
+   have clipped the Lobby's two-column dashboard shell, which needs
+   the full 1100px `.host-dashboard` already budgets for. */
 .stage {
   flex: 1;
   display: flex;
@@ -8,7 +15,6 @@
   padding: var(--space-lg);
   text-align: center;
   width: 100%;
-  max-width: 960px;
   margin: 0 auto;
 }
 
@@ -26,95 +32,42 @@
   font-size: clamp(1rem, 1.8vw, 1.2rem);
 }
 
-/* Stage Lobby - the pre-game waiting screen, projected on a TV/
-   projector, rebuilt to mirror the Host Lobby: a join card (QR + room
-   code) and the exact same shared `GameSummaryCard` the Host/Player
-   pages use, rather than a hand-written summary of the same facts.
-   Both cards reuse the app's own `.card` shape (radius/border/shadow)
-   at Stage scale, so this reads as the same design system at a larger
-   size, not a bespoke Stage-only card style. */
-.stage-lobby {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-lg);
-  width: 100%;
+/* Stage Lobby - reuses the Host Dashboard's own two-column shell
+   verbatim (`.host-dashboard`, `styles/hostDashboardShell.css`) - see
+   StageLobbyPhase's own doc comment. Only two things are layered on
+   top of the shared shape, both scoped to this one instance via the
+   `.stage-lobby-dashboard` class on the outer `.host-dashboard` div:
+
+   1. A larger QR (`.stage-sidebar-qr`, applied alongside `.invite-qr`)
+      than the Host Dashboard's own compact 100px sidebar QR - this is
+      read from across a room, not at arm's length.
+   2. Cancels `.host-dashboard-content`'s ≥860px floating-action bottom
+      reservation (`hostDashboardShell.css`) - the Stage has no
+      floating action on this screen at all, so that reserved space
+      would just be dead room working against "fits inside 100vh
+      without scrolling."
+
+   The sidebar already gets its own fixed, non-scrolling height for
+   free from the shared shell (`.host-dashboard-sidebar`, ≥860px); the
+   right panel's own content here (two short sections - Players Joined,
+   Game Summary) is comfortably shorter than the Host's own multi-
+   setting Dashboard, so no additional height constraint was needed
+   there beyond removing the wasted reservation above - verified live,
+   not assumed (see TRIVIA_NIGHT_MEMORY.md). */
+.stage-sidebar-qr {
+  width: 190px;
 }
 
-.stage-join-card {
-  width: 100%;
-  max-width: 460px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.stage-title {
-  margin: 0;
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: clamp(1.5rem, 3vw, 2rem);
-}
-
-.stage-qr {
-  width: clamp(180px, 22vw, 240px);
-  max-width: 100%;
-  padding: var(--space-xs);
-}
-
-.stage-qr svg {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.stage-room-code {
-  margin: 0;
-  font-size: clamp(1.4rem, 3vw, 1.85rem);
-  white-space: nowrap;
-}
-
-.stage-room-code strong {
-  font-weight: 700;
-  letter-spacing: 0.04em;
+@media (min-width: 860px) {
+  .stage-lobby-dashboard .host-dashboard-content {
+    padding-bottom: var(--space-md);
+  }
 }
 
 .stage-scan-hint {
-  margin: 0;
+  margin: var(--space-xs) 0 0;
   color: var(--color-text-muted);
-  font-size: clamp(1rem, 1.8vw, 1.15rem);
-}
-
-/* The exact same GameSummaryCard component the Host Dashboard/Player
-   Lobby render (see hostDashboardShell.css, imported by this page) -
-   only the surrounding card width differs, per the redesign brief's
-   own "reuse... Game Summary" instruction. Left-aligned inside the
-   card (GameSummaryCard's own layout), unlike the rest of this
-   centred page - a key/value list reads better ragged-left than
-   centred. */
-.stage-summary-card {
-  width: 100%;
-  max-width: 460px;
-  text-align: left;
-  padding: var(--space-md) var(--space-lg);
-}
-
-.stage-lobby-footer {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.stage-avatar-row {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.35rem;
-  font-size: clamp(1.5rem, 2.5vw, 2rem);
-  line-height: 1;
-  max-width: 420px;
+  font-size: clamp(0.9rem, 1.6vw, 1.05rem);
 }
 
 /* Stage Question/Reveal - the same header hierarchy as the Host's own
@@ -122,8 +75,21 @@
    timer), at a scale built for reading from across a room rather than
    the Host/Player screens' own fixed sizes - see StagePage's own doc
    comment for why this uses its own classes/tokens instead of
-   liveGameShell.css directly. */
+   liveGameShell.css directly.
+
+   Same fixed-height treatment as `.stage-lobby` above (see its own
+   doc comment) - header and prompt size to their own content
+   (`flex-shrink: 0`), the answer area (`.stage-options` pre-Reveal,
+   `.stage-reveal-hero` post-Reveal) takes whatever's left via
+   `flex: 1; min-height: 0` and centres itself within it, the same
+   "fill remaining height, don't stretch individual cards" approach
+   already proven on the Player Question screen - never a reason for
+   this screen to need a scrollbar as long as content stays within the
+   Deck Bible's recommended limits (documented on the Host's own
+   LiveGamePhase). */
 .stage-question {
+  height: calc(100vh - var(--app-header-height) - (2 * var(--space-lg)));
+  height: calc(100dvh - var(--app-header-height) - (2 * var(--space-lg)));
   width: 100%;
   max-width: 900px;
   display: flex;
@@ -133,6 +99,7 @@
 }
 
 .stage-question-header {
+  flex-shrink: 0;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -165,6 +132,7 @@
 }
 
 .stage-question-prompt {
+  flex-shrink: 0;
   margin: 0;
   text-align: center;
   font-family: var(--font-heading);
@@ -173,11 +141,21 @@
   line-height: 1.25;
 }
 
+/* `flex: 1` (not auto-height) is what makes this the region that
+   absorbs whatever height the header+prompt didn't use, and
+   `align-content: center` (not `flex-start`) is what centres the
+   naturally-sized 2x2 grid within that leftover space instead of
+   pinning it to the top and leaving dead space below - same
+   "compact cards, centred as a block" approach as the Player
+   Question screen's own `.live-game-answers`, at Stage scale. */
 .stage-options {
+  flex: 1;
+  min-height: 0;
   width: 100%;
   max-width: 780px;
   margin: 0 auto;
   display: grid;
+  align-content: center;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-md);
 }
@@ -218,11 +196,18 @@
    own StageRevealHero doc comment), one glow-in settle animation on
    mount, respecting reduced-motion. Never anything more granular than
    the aggregate stat underneath (see computeAggregateReveal) - no
-   names, no per-competitor breakdown. */
+   names, no per-competitor breakdown. `flex: 1` + `justify-content:
+   center` is the same "absorb and centre within the leftover height"
+   treatment `.stage-options` uses above, so Reveal fills exactly the
+   same footprint Question just did - no layout jump in the fixed-
+   height `.stage-question` wrapper both states share. */
 .stage-reveal-hero {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: var(--space-sm);
   padding: var(--space-lg);
   text-align: center;
